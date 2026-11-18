@@ -1,0 +1,41 @@
+{
+  "environment": "AWS Learner Lab us-east-1, EC2 t3.medium (2 vCPU, 4 GiB), Docker Compose, tag v0.2.0 (REST/SOAP/trama, 4 fuentes)",
+  "loadGenerator": "scripts/generate_load.py en la MISMA instancia (comparte CPU); corrida previa de calentamiento de 100 transacciones, no reportada",
+  "params": {
+    "n": 500,
+    "concurrency": 20,
+    "url": "https://127.0.0.1:8443"
+  },
+  "requests": 500,
+  "ok": 500,
+  "errors": 0,
+  "statusCounts": {
+    "200": 500
+  },
+  "throughputRps": 117.2,
+  "byProtocol": {
+    "REST": {
+      "requests": 333,
+      "ok": 333,
+      "p50": 167.7,
+      "p95": 203.9
+    },
+    "SOAP": {
+      "requests": 167,
+      "ok": 167,
+      "p50": 163.0,
+      "p95": 201.0
+    }
+  },
+  "latencyMs": {
+    "p50": 166.2,
+    "p95": 203.6,
+    "p99": 222.4
+  },
+  "correlation": {
+    "checked": 500,
+    "found": 500,
+    "complete": 500,
+    "completePct": 100.0
+  }
+}
