@@ -86,21 +86,63 @@ def format_core_record(
 
 
 # --------------------------------------------------------------------------- #
-# Logger JSON de una línea por evento (json.dumps escapa saltos de línea, lo que
-# evita la inyección de entradas falsas en el log).
+# Loggers: cada capa escribe en el formato que tendría en la realidad (docs/log-formats.md).
 # --------------------------------------------------------------------------- #
-class JsonLogger:
-    def __init__(self, layer: str, path: str) -> None:
-        self.layer = layer
+class TextLogger:
+    """Log de texto plano, una línea por evento (gateway y bus, como en appliances y ESB reales).
+
+    Solo se escriben valores que ya pasaron por una lista blanca (IDs validados, códigos fijos);
+    aun así se eliminan saltos de línea para que nadie pueda fabricar una entrada falsa.
+    """
+
+    LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
+
+    def __init__(self, path: str, level: str = "INFO") -> None:
+        self.threshold = self.LEVELS.get(level.upper(), 20)
         self._fh = open(path, "a", buffering=1, encoding="utf-8")
         self._lock = threading.Lock()
 
-    def event(self, own_id: str, parent_id: str, **fields: Any) -> None:
-        record = {"ts": now_iso(), "layer": self.layer, "id": own_id, "parent_id": parent_id, **fields}
-        line = json.dumps(record, separators=(",", ":"))
+    def enabled(self, level: str) -> bool:
+        return self.LEVELS[level] >= self.threshold
+
+    def log(self, level: str, message: str) -> None:
+        if not self.enabled(level):
+            return
+        line = f"{now_iso()} {level:<5} {message}".replace("\r", " ").replace("\n", " ")
         with self._lock:
             self._fh.write(line + "\n")
-        print(line, flush=True)  # visible con `docker compose logs`
+        print(line, flush=True)
+
+
+class SpanExporter:
+    """Escribe spans en JSON al estilo OpenTelemetry (OTLP simplificado), uno por línea.
+
+    El servicio moderno sí está instrumentado, pero como el core no propaga ``traceparent``
+    cada petición abre una traza OTel nueva: su ``traceId`` no coincide con el de nadie más.
+    """
+
+    def __init__(self, service: str, path: str) -> None:
+        self.service = service
+        self._fh = open(path, "a", buffering=1, encoding="utf-8")
+        self._lock = threading.Lock()
+
+    def export(self, name: str, start_ns: int, end_ns: int, ok: bool, attributes: Dict[str, Any]) -> None:
+        span = {
+            "resource": {"service.name": self.service},
+            "traceId": secrets.token_hex(16),
+            "spanId": secrets.token_hex(8),
+            "parentSpanId": "",
+            "name": name,
+            "kind": "SPAN_KIND_SERVER",
+            "startTimeUnixNano": start_ns,
+            "endTimeUnixNano": end_ns,
+            "status": {"code": "STATUS_CODE_OK" if ok else "STATUS_CODE_ERROR"},
+            "attributes": attributes,
+        }
+        line = json.dumps(span, separators=(",", ":"))
+        with self._lock:
+            self._fh.write(line + "\n")
+        print(line, flush=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -184,15 +226,29 @@ class BaseHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def read_json(self) -> Dict[str, Any]:
+    def send_body(self, status: int, body: bytes, content_type: str) -> None:
+        """Respuesta no JSON (SOAP/XML o trama) con las mismas cabeceras de seguridad."""
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_raw(self) -> bytes:
         raw_len = self.headers.get("Content-Length", "")
         if not raw_len.isdigit():
             raise HttpError(411, "length_required")
         length = int(raw_len)
         if length == 0 or length > MAX_BODY_BYTES:
             raise HttpError(413, "payload_size")
+        return self.rfile.read(length)
+
+    def read_json(self) -> Dict[str, Any]:
+        raw = self.read_raw()
         try:
-            data = json.loads(self.rfile.read(length))
+            data = json.loads(raw)
         except (ValueError, UnicodeDecodeError):
             raise HttpError(400, "invalid_json") from None
         if not isinstance(data, dict):
@@ -239,26 +295,32 @@ class BaseHandler(BaseHTTPRequestHandler):
     do_DELETE = do_PATCH = do_PUT  # noqa: N815
 
 
+def post_raw(
+    url: str, data: bytes, content_type: str, headers: Dict[str, str], timeout: float = 3.0
+) -> Tuple[int, bytes]:
+    """POST con timeout obligatorio y cuerpo arbitrario (JSON, SOAP o trama). Devuelve (status, cuerpo).
+
+    503 significa que la capa siguiente no respondió (caída o timeout).
+    """
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": content_type, **headers}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - URL interna fija
+            return resp.status, resp.read(MAX_BODY_BYTES)
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(MAX_BODY_BYTES)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return 503, b""
+
+
 def post_json(
     url: str, payload: Dict[str, Any], headers: Dict[str, str], timeout: float = 3.0
 ) -> Tuple[int, Dict[str, Any]]:
     """POST JSON con timeout obligatorio. Devuelve (status, cuerpo)."""
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", **headers},
-        method="POST",
-    )
+    status, raw = post_raw(url, json.dumps(payload).encode(), "application/json", headers, timeout)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - URL interna fija
-            return resp.status, json.loads(resp.read() or b"{}")
-    except urllib.error.HTTPError as exc:
-        try:
-            return exc.code, json.loads(exc.read() or b"{}")
-        except ValueError:
-            return exc.code, {}
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return 503, {"error": "upstream_unreachable"}
+        return status, json.loads(raw or b"{}")
+    except ValueError:
+        return status, {}
 
 
 def serve(handler: type, port: int, tls: bool = False) -> None:

@@ -9,7 +9,7 @@ disponibilidad del flujo, credenciales (API keys, tokens, llaves AWS del lab).
 | 1 | Cliente sin credencial invoca el flujo | S | API key por canal, comparación en tiempo constante; sin clave ⇒ 401 | `gateway.py`, `common.token_matches` | `test_common`, smoke |
 | 2 | Llamada directa a bus/core saltándose el gateway | S/E | Red `internal: true` (sin puertos publicados) + `X-Internal-Token` | `docker-compose.yml`, `BaseHandler.require_internal` | smoke (401) |
 | 3 | Inyección de campos/valores maliciosos | T | Lista blanca estricta de campos, tipos y rangos; validación repetida en cada capa | `schema.py` | `test_common` |
-| 4 | **Inyección en logs** (falsificar eventos) | T/R | `json.dumps` escapa `\n`; IDs con regex anclada en `\Z`; el `client-id` recibido se valida (`CLI-<12 hex>`) o se rechaza | `common.py`, `parsers.py` | `test_parsers`, `test_common` |
+| 4 | **Inyección en logs** (falsificar eventos) | T/R | Los loggers de texto eliminan `\r`/`\n` y solo escriben valores ya validados; los spans usan `json.dumps`; IDs con regex anclada en `\Z`; el `client-id` (header o SOAP) se valida (`CLI-<12 hex>`) o se rechaza; cada parser exige la línea completa con regex anclada | `common.py`, `parsers.py` | `test_parsers`, `test_common` |
 | 5 | Log manipulado que enlaza capas no contiguas | T | El parser exige prefijos coherentes con la capa | `parsers.py` | `test_parsers` |
 | 6 | Alteración de logs por el correlacionador comprometido | T | Volúmenes montados `:ro` | `docker-compose.yml` | revisión |
 | 7 | Fuga de datos sensibles en logs | I | El core no registra cuenta; los logs solo tienen IDs, estado y duración | `core.py`, `log-formats.md` | revisión |
@@ -26,6 +26,9 @@ disponibilidad del flujo, credenciales (API keys, tokens, llaves AWS del lab).
 | 18 | Secretos en el repositorio | I | `.env`/llaves generados en el host, ignorados por git; plantilla `.env.example`; escaneo con gitleaks (CI + pre-commit) | `.gitignore`, CI | CI |
 | 19 | Dependencias / imagen vulnerables | T | Solo stdlib (0 dependencias de runtime); imagen base fijada; Trivy + pip-audit + Dependabot | Dockerfile, CI | CI |
 | 20 | Repudio (no se sabe qué pasó) | R | Cada capa deja log con ID, estado y duración; la traza es reproducible | todo | `make trace` |
+| 21 | **XXE / expansión de entidades** en SOAP (lectura de archivos, *billion laughs*) | I/D | Se rechaza `<!DOCTYPE` y `<!ENTITY` antes de parsear; cuerpo ≤ 4 KB; estructura exacta del sobre y de la transacción | `wire.py` | `test_wire` |
+| 22 | Trama manipulada (desbordar campos, ID de otra capa) | T | Longitud exacta, solo ASCII, MTI conocido, ID con prefijo `BUS-`, campos numéricos verificados; luego `validate_txn` | `wire.py`, `core.py` | `test_wire` |
+| 23 | Enlace inventado por correlación heurística | T | El parser del bus solo une por ID (línea DEBUG `mapped`); nunca por hilo ni por hora. Sin el par, la traza se reporta incompleta | `parsers.BusLogParser` | `test_parsers` |
 
 ## Riesgos residuales (aceptados y declarados)
 1. **Tráfico interno sin cifrar** (HTTP dentro de la red aislada de Docker). Mitigado con red interna + token; mejora: mTLS.

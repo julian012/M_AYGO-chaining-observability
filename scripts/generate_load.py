@@ -46,21 +46,36 @@ def channel_keys() -> dict:
     return keys
 
 
-def one_request(args: argparse.Namespace, ctx: ssl.SSLContext | None, keys: dict, channel: str) -> dict:
-    client_id = "CLI-" + secrets.token_hex(6)
-    body = json.dumps(
-        {
-            "type": random.choice(["TRF", "PAY", "BAL"]),  # noqa: S311
-            "account": str(random.randint(10**8, 10**9 - 1)),  # noqa: S311
-            "amount_cents": random.randint(100, 500_000),  # noqa: S311
-        }
+SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
+TXN_NS = "urn:obsproto:txn:v1"
+
+
+def soap_body(txn: dict, client_id: str) -> bytes:
+    return (
+        f'<soapenv:Envelope xmlns:soapenv="{SOAP_NS}" xmlns:txn="{TXN_NS}"><soapenv:Header>'
+        f"<txn:ClientRequestId>{client_id}</txn:ClientRequestId></soapenv:Header><soapenv:Body>"
+        f"<txn:Transaction><txn:Type>{txn['type']}</txn:Type><txn:Account>{txn['account']}</txn:Account>"
+        f"<txn:AmountCents>{txn['amount_cents']}</txn:AmountCents></txn:Transaction></soapenv:Body></soapenv:Envelope>"
     ).encode()
-    req = urllib.request.Request(  # noqa: S310
-        args.url.rstrip("/") + "/v1/transactions",
-        data=body,
-        headers={"Content-Type": "application/json", "X-Api-Key": keys[channel], "X-Client-Id": client_id},
-        method="POST",
-    )
+
+
+def one_request(args: argparse.Namespace, ctx: ssl.SSLContext | None, keys: dict, channel: str) -> dict:
+    """Móvil y web hablan REST/JSON; el canal de tercero (partner) habla SOAP/XML."""
+    client_id = "CLI-" + secrets.token_hex(6)
+    txn = {
+        "type": random.choice(["TRF", "PAY", "BAL"]),  # noqa: S311
+        "account": str(random.randint(10**8, 10**9 - 1)),  # noqa: S311
+        "amount_cents": random.randint(100, 500_000),  # noqa: S311
+    }
+    soap = channel == "partner" and not args.rest_only
+    base = args.url.rstrip("/")
+    if soap:
+        url, body = base + "/soap/v1/transactions", soap_body(txn, client_id)
+        headers = {"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '"urn:obsproto:txn:v1#Submit"'}
+    else:
+        url, body = base + "/v1/transactions", json.dumps(txn).encode()
+        headers = {"Content-Type": "application/json", "X-Client-Id": client_id}
+    req = urllib.request.Request(url, data=body, headers={**headers, "X-Api-Key": keys[channel]}, method="POST")  # noqa: S310
     start = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=args.timeout, context=ctx) as resp:  # noqa: S310
@@ -69,7 +84,13 @@ def one_request(args: argparse.Namespace, ctx: ssl.SSLContext | None, keys: dict
         status = exc.code
     except Exception:  # noqa: BLE001
         status = 0
-    return {"client_id": client_id, "channel": channel, "status": status, "ms": (time.monotonic() - start) * 1000}
+    return {
+        "client_id": client_id,
+        "channel": channel,
+        "proto": "SOAP" if soap else "REST",
+        "status": status,
+        "ms": (time.monotonic() - start) * 1000,
+    }
 
 
 def percentile(sorted_values: list, p: float) -> float:
@@ -101,6 +122,7 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=10.0)
     ap.add_argument("--correlator", default="", help="URL del correlacionador para verificar trazas")
     ap.add_argument("--settle", type=float, default=3.0, help="segundos de espera antes de consultar trazas")
+    ap.add_argument("--rest-only", action="store_true", help="todos los canales por REST (línea base sin SOAP)")
     ap.add_argument("--out", default="", help="archivo JSON donde guardar el resumen (p. ej. evidence/run.json)")
     args = ap.parse_args()
 
@@ -126,6 +148,16 @@ def main() -> None:
             str(s): sum(1 for r in results if r["status"] == s) for s in sorted({r["status"] for r in results})
         },
         "throughputRps": round(args.n / elapsed, 1),
+        "byProtocol": {
+            proto: {
+                "requests": len(rs),
+                "ok": sum(1 for r in rs if r["status"] == 200),
+                "p50": round(statistics.median(sorted(r["ms"] for r in rs if r["status"] == 200) or [0]), 1),
+                "p95": round(percentile(sorted(r["ms"] for r in rs if r["status"] == 200) or [0], 0.95), 1),
+            }
+            for proto in ("REST", "SOAP")
+            if (rs := [r for r in results if r["proto"] == proto])
+        },
         "latencyMs": (
             {
                 "p50": round(statistics.median(lat), 1),
@@ -141,7 +173,7 @@ def main() -> None:
         time.sleep(args.settle)
         # Se verifican TODAS las transacciones enviadas (también las que el gateway reportó con error).
         summary["correlation"] = check_traces(
-            args.correlator, token, [r["client_id"] for r in results if r["status"] in (200, 502)]
+            args.correlator, token, [r["client_id"] for r in results if r["status"] in (200, 500, 502)]
         )
         c = summary["correlation"]
         c["completePct"] = round(100 * c["complete"] / c["checked"], 2) if c["checked"] else None

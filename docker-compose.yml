@@ -51,6 +51,7 @@ services:
       <<: *env-common
       PORT: "8081"
       LOG_FILE: /var/log/app/bus.log
+      LOG_LEVEL: ${BUS_LOG_LEVEL:-DEBUG} # INFO = el par de IDs no queda en el log (escenario de ruptura)
       CORE_URL: http://core:8082
     volumes: ["logs-bus:/var/log/app"]
     networks: [internal]

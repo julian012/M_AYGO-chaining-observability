@@ -11,11 +11,11 @@ from __future__ import annotations
 import os
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Union
 
 from obsproto.common import BaseHandler, HttpError, env, serve, token_matches, valid_id
 from obsproto.correlator.graph import IdGraph
-from obsproto.correlator.parsers import Event, parse_core_line, parse_json_line
+from obsproto.correlator.parsers import BusLogParser, Event, parse_core_line, parse_gateway_line, parse_span_line
 
 MAX_READ_PER_POLL = 1_048_576
 MAX_PARTIAL = 4096
@@ -24,8 +24,8 @@ MAX_PARTIAL = 4096
 class Tailer:
     """Lee solo líneas completas y nuevas; tolera rotación/truncado del archivo."""
 
-    def __init__(self, path: str, parse: Callable[[str], Optional[Event]]) -> None:
-        self.path, self.parse = path, parse
+    def __init__(self, path: str, parse: Callable[[str], Union[None, Event, List[Event]]], fmt: str) -> None:
+        self.path, self.parse, self.fmt = path, parse, fmt
         self._offset, self._inode, self._partial = 0, None, b""
         self.malformed = 0
 
@@ -46,21 +46,25 @@ class Tailer:
             self._partial = b""
             self.malformed += 1
         for raw in lines:
-            ev = self.parse(raw.decode("utf-8", errors="replace"))
-            if ev is None:
+            result = self.parse(raw.decode("utf-8", errors="replace"))
+            if result is None:
                 self.malformed += 1
-            elif graph.add(ev):
-                counts[ev.layer] = counts.get(ev.layer, 0) + 1
+                continue
+            for ev in [result] if isinstance(result, Event) else result:
+                if graph.add(ev):
+                    counts[ev.layer] = counts.get(ev.layer, 0) + 1
 
 
 GRAPH = IdGraph(int(env("MAX_EVENTS", "200000")))
 COUNTS: Dict[str, int] = {}
 LOG_DIR = env("LOG_DIR", "/logs")
+BUS_PARSER = BusLogParser()
+# Una fuente por capa, cada una con su propio formato (ver docs/log-formats.md).
 TAILERS: List[Tailer] = [
-    Tailer(os.path.join(LOG_DIR, "gateway", "gateway.log"), parse_json_line),
-    Tailer(os.path.join(LOG_DIR, "bus", "bus.log"), parse_json_line),
-    Tailer(os.path.join(LOG_DIR, "core", "core.log"), parse_core_line),
-    Tailer(os.path.join(LOG_DIR, "modern", "modern.log"), parse_json_line),
+    Tailer(os.path.join(LOG_DIR, "gateway", "gateway.log"), parse_gateway_line, "access-log-kv"),
+    Tailer(os.path.join(LOG_DIR, "bus", "bus.log"), BUS_PARSER, "leveled-text"),
+    Tailer(os.path.join(LOG_DIR, "core", "core.log"), parse_core_line, "fixed-width"),
+    Tailer(os.path.join(LOG_DIR, "modern", "modern.log"), parse_span_line, "otel-span-json"),
 ]
 
 
@@ -100,6 +104,8 @@ class CorrelatorHandler(BaseHandler):
         return {
             "events": dict(COUNTS),
             "malformedLines": sum(t.malformed for t in TAILERS),
+            "sources": {os.path.basename(t.path).split(".")[0]: t.fmt for t in TAILERS},
+            "busUnlinkedReplies": BUS_PARSER.unlinked,
             "transactions": comp["total"],
             "completeTraces": comp["complete"],
             "completeness": round(comp["complete"] / comp["total"], 4) if comp["total"] else None,
@@ -110,6 +116,7 @@ class CorrelatorHandler(BaseHandler):
         lines = [f'obsproto_events_total{{layer="{k}"}} {v}' for k, v in sorted(s["events"].items())]
         lines += [
             f"obsproto_malformed_lines_total {s['malformedLines']}",
+            f"obsproto_bus_unlinked_replies {s['busUnlinkedReplies']}",
             f"obsproto_transactions_total {s['transactions']}",
             f"obsproto_complete_traces_total {s['completeTraces']}",
         ]

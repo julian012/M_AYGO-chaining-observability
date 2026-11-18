@@ -1,0 +1,34 @@
+{
+  "requests": 300,
+  "ok": 300,
+  "errors": 0,
+  "statusCounts": {
+    "200": 300
+  },
+  "throughputRps": 495.7,
+  "byProtocol": {
+    "REST": {
+      "requests": 200,
+      "ok": 200,
+      "p50": 30.0,
+      "p95": 44.6
+    },
+    "SOAP": {
+      "requests": 100,
+      "ok": 100,
+      "p50": 29.3,
+      "p95": 44.7
+    }
+  },
+  "latencyMs": {
+    "p50": 29.9,
+    "p95": 44.6,
+    "p99": 47.7
+  },
+  "correlation": {
+    "checked": 300,
+    "found": 300,
+    "complete": 300,
+    "completePct": 100.0
+  }
+}

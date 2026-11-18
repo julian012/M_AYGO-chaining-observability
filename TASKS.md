@@ -5,7 +5,7 @@
 ## Hecho (esqueleto, 10-nov)
 - [x] Capas simuladas: gateway, bus, core (log de ancho fijo), modern
 - [x] Correlacionador: parsers, grafo de IDs, API `/trace`, `/stats`, `/metrics`
-- [x] 52 pruebas unitarias; ruff limpio
+- [x] 52 pruebas unitarias; ruff limpio (88 desde el 18-nov)
 - [x] Prueba local de punta a punta (procesos): 300/300 trazas completas con 10 % de fallos en el core
 - [x] Pruebas negativas de seguridad locales (401, 413, 422)
 - [x] Hallazgo corregido por las pruebas: `$` en la regex de IDs aceptaba `\n` final (inyección en logs) → `\Z`
@@ -16,6 +16,16 @@
 - [x] Stack levantado con Docker Compose en local: 300/300 trazas completas, 479,5 rps, p95 47,5 ms (`evidence/docker-local-smoke-2026-11-10.json`)
 - [x] TLS del gateway verificado en local: cert de confianza ⇒ 200; sin confiar, HTTP plano y TLS 1.1 ⇒ rechazados; HSTS y `nosniff` presentes
 
+## Fuentes heterogéneas (18-nov, ADR-0005)
+- [x] Protocolos reales por salto: REST/JSON y SOAP en el gateway, SOAP gateway→bus, trama de ancho fijo bus→core, REST core→moderno
+- [x] Telemetría distinta por capa: access log `clave=valor`, texto con niveles (par solo en DEBUG), ancho fijo, spans OTel
+- [x] Un parser por fuente; el del bus no une por hilo ni por tiempo
+- [x] Seguridad: XXE/DTD rechazados, tramas validadas; amenazas 21–23
+- [x] Local: 300/300 trazas completas con bus en DEBUG (496 rps, p95 44,6 ms); 0/150 con bus en INFO (`evidence/local-hetero-*`)
+- [x] Documentación visual en el repo: `docs/flujo-y-telemetria.md` y `docs/visual/flujo-trazabilidad.html`
+- [ ] Desplegar en AWS con un tag nuevo (`v0.2.0`)
+- [ ] Hallazgo: la primera corrida tras arrancar es lenta (p95 ~2 s). Hacer calentamiento antes de medir y confirmarlo en AWS
+
 ## Siguiente
 - [x] En AWS: 5 contenedores `healthy`, `ReadonlyRootfs=true`, usuario 10001 (18-nov)
 - [x] Repo publicado en https://github.com/julian012/M_AYGO-chaining-observability, CI en verde (5 jobs) y tag `v0.1.0` (18-nov)
@@ -25,6 +35,6 @@
 - [ ] Medir overhead con/sin correlacionador y tiempo de localización manual vs. modelo
 - [ ] Prueba de escalado (réplicas) y de caos (matar un contenedor)
 - [ ] Completar `docs/quality-attributes.md` con números reales
-- [ ] Diagramas C4 (contexto/contenedores) y de secuencia de los 4 IDs
+- [~] Diagrama de secuencia de los IDs hecho (`docs/flujo-y-telemetria.md`); faltan C4 de contexto/contenedores
 - [ ] Paper (IEEE): ver plan en `../Plan_Tareas_Proyecto_02.md`
 - [ ] Revisar `docs/threat-model.md` contra lo realmente desplegado

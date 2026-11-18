@@ -8,14 +8,17 @@ de punta a punta** cuando cada capa (gateway, bus de integración, core legacy, 
 
 ## Cómo funciona (30 segundos)
 ```
-Canal ─▶ Gateway ─▶ Bus ─▶ Core legacy ─▶ Servicio moderno
- CLI-…    GW-…      BUS-…   CORE-… (log ancho fijo)   MOD-…
-            └──── cada capa registra  ID recibido → ID propio ────┘
-                         │
-                 Correlacionador: lee los logs (solo lectura), arma el grafo de IDs
-                 y responde GET /trace/<CUALQUIER ID>  →  traza completa
+Canal ──REST/SOAP──▶ Gateway ──SOAP──▶ Bus ──trama──▶ Core legacy ──REST──▶ Servicio moderno
+ CLI-…                GW-…             BUS-…          CORE-…                 MOD-…
+                   access log        texto INFO/DEBUG  registro ancho fijo    spans OTel
+                      └──────── cada capa registra  ID recibido → ID propio ────────┘
+                                       │
+              Correlacionador: lee las 4 fuentes (solo lectura), arma el grafo de IDs
+              y responde GET /trace/<CUALQUIER ID>  →  traza completa
 ```
-Detalle en [`docs/architecture.md`](docs/architecture.md) y [`ADR-0001`](docs/adr/0001-id-chaining.md).
+**Explicación visual paso a paso:** [`docs/flujo-y-telemetria.md`](docs/flujo-y-telemetria.md)
+(versión HTML: [`docs/visual/flujo-trazabilidad.html`](docs/visual/flujo-trazabilidad.html)).
+Detalle en [`docs/architecture.md`](docs/architecture.md), [`ADR-0001`](docs/adr/0001-id-chaining.md) y [`ADR-0005`](docs/adr/0005-heterogeneous-sources.md).
 
 ## Requisitos
 Docker + Compose v2, `openssl`, Python 3.9+ (solo para el generador de carga y las pruebas).
@@ -29,11 +32,13 @@ make trace ID=CLI-xxxxxxxxxxxx  # traza a partir de cualquier ID (también GW-/B
 make down                     # detener (make clean borra los logs)
 ```
 Inyectar fallos en el core: `FAULT_RATE=0.1` en `.env` y `docker compose up -d`.
+Bus sin el par de IDs en el log (escenario de ruptura): `BUS_LOG_LEVEL=INFO docker compose up -d bus`.
+Todos los canales por REST (línea base sin SOAP): `python3 scripts/generate_load.py --rest-only …`.
 
 ## Pruebas y calidad
 ```bash
 pip install -e ".[dev]"
-make test      # 52 pruebas: parsers, grafo de IDs, validación, rate limit
+make test      # 88 pruebas: parsers de las 4 fuentes, SOAP/tramas (incl. XXE), grafo de IDs, validación
 make lint      # ruff + cfn-lint
 ```
 CI (GitHub Actions): lint, pruebas (Python 3.9 y 3.12), cfn-lint, gitleaks, pip-audit, Trivy (IaC e imagen), hadolint.

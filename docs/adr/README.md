@@ -8,5 +8,6 @@ Formato: contexto → decisión → alternativas → consecuencias. Una decisió
 | [0002](0002-ec2-compose-vs-eks.md) | EC2 + Compose en lugar de EKS/ECS/Lambda | Aceptada |
 | [0003](0003-stdlib-minimal.md) | Solo biblioteca estándar en runtime | Aceptada |
 | [0004](0004-security-baseline.md) | Línea base de seguridad | Aceptada |
+| [0005](0005-heterogeneous-sources.md) | Protocolos y fuentes de telemetría heterogéneos | Aceptada |
 
 Pendientes: backend de trazas (Tempo vs. Jaeger vs. X-Ray) · estrategia de muestreo · persistencia del grafo (en memoria vs. DynamoDB).

@@ -17,29 +17,32 @@ flowchart LR
     W[Web]:::c
     P[API tercero]:::c
   end
-  M & W & P -->|HTTPS + API key| GW
+  M & W -->|"REST/JSON + API key"| GW
+  P -->|"SOAP/XML + API key"| GW
   subgraph "Red interna (sin salida a Internet)"
-    GW["Gateway<br/>ID: GW-…"] -->|X-Upstream-Id| BUS["Bus<br/>ID: BUS-…"]
-    BUS --> CORE["Core legacy<br/>ID: CORE-…<br/>log ancho fijo"]
-    CORE --> MOD["Servicio moderno<br/>ID: MOD-…"]
+    GW["Gateway<br/>ID: GW-…"] -->|"SOAP · wsa:MessageID"| BUS["Bus ESB<br/>ID: BUS-…"]
+    BUS -->|"trama ancho fijo"| CORE["Core legacy<br/>ID: CORE-…"]
+    CORE -->|"REST · X-Upstream-Id"| MOD["Servicio moderno<br/>ID: MOD-…"]
   end
-  GW -.log JSON.-> V1[(vol gateway)]
-  BUS -.log JSON.-> V2[(vol bus)]
-  CORE -.log ancho fijo.-> V3[(vol core)]
-  MOD -.log JSON.-> V4[(vol modern)]
-  V1 & V2 & V3 & V4 -->|solo lectura| COR["Correlacionador<br/>parsers + grafo de IDs"]
+  GW -.access log clave=valor.-> V1[(vol gateway)]
+  BUS -.texto INFO/DEBUG.-> V2[(vol bus)]
+  CORE -.registro ancho fijo.-> V3[(vol core)]
+  MOD -.spans OTel.-> V4[(vol modern)]
+  V1 & V2 & V3 & V4 -->|solo lectura| COR["Correlacionador<br/>4 parsers + grafo de IDs"]
   COR -->|/trace/{cualquier ID}, /stats, /metrics<br/>Bearer token, loopback| U[Operador]
   classDef c fill:#eef,stroke:#88a
 ```
 
+Recorrido paso a paso, mensajes y logs reales de cada capa: [flujo-y-telemetria.md](flujo-y-telemetria.md).
+
 ## Componentes
-| Componente | Rol real simulado | ID propio | Log |
-|---|---|---|---|
-| `gateway` | Gateway de seguridad/API | `GW-` (padre: `CLI-`, del cliente) | JSON |
-| `bus` | Bus de integración (ESB) | `BUS-` (padre: `GW-`) | JSON |
-| `core` | Core legacy no modificable | `CORE-` (padre: `BUS-`) | **Texto de ancho fijo** |
-| `modern` | Servicio posterior al core | `MOD-` (padre: `CORE-`) | JSON |
-| `correlator` | Plataforma de observabilidad | — | — (lee los 4 logs) |
+| Componente | Rol real simulado | ID propio (padre) | Entrada | Telemetría |
+|---|---|---|---|---|
+| `gateway` | Gateway de seguridad/API tipo appliance | `GW-` (`CLI-`) | REST/JSON y SOAP | Access log `clave=valor` |
+| `bus` | Bus de integración (ESB) | `BUS-` (`GW-`) | SOAP | Texto con niveles; el par en DEBUG |
+| `core` | Core legacy (COBOL) no modificable | `CORE-` (`BUS-`) | Trama de ancho fijo | Registro de ancho fijo |
+| `modern` | Servicio posterior al core | `MOD-` (`CORE-`) | REST/JSON | Spans OpenTelemetry |
+| `correlator` | Plataforma de observabilidad | — | — | Lee las 4 fuentes |
 
 Todos los nombres son genéricos; los datos son sintéticos.
 
@@ -48,6 +51,7 @@ Todos los nombres son genéricos; los datos son sintéticos.
 - Independiente del orden de llegada (los hijos terminan antes que sus padres) y tolerante a duplicados.
 - Una cadena rota se reporta como **traza incompleta** con las capas faltantes; nunca se inventan enlaces.
 - Un fallo del core (`status != 00`) no cuenta como capa faltante de `modern` (no se invoca por diseño).
+- Nunca une por hilo ni por tiempo: si una fuente no deja el par de IDs (p. ej. el bus en INFO), la traza se reporta incompleta.
 - Memoria acotada (`MAX_EVENTS`, evicción FIFO).
 
 ## Despliegue
@@ -56,5 +60,5 @@ Todos los nombres son genéricos; los datos son sintéticos.
 
 ## Evolución prevista
 1. Exportar los spans reconstruidos a OTLP (OTel Collector → Tempo/Jaeger) y visualizar en Grafana.
-2. Reemplazar el stand-in del bus/gateway por IBM ACE / DataPower de desarrollo (trabajo futuro).
+2. Reemplazar los stand-ins por productos reales (appliance de integración, ESB, core en CICS) de desarrollo (trabajo futuro).
 3. mTLS entre servicios internos (hoy: red aislada + token compartido).

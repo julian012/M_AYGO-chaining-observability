@@ -1,14 +1,52 @@
-# Formatos de log
+# Formatos de mensaje y de log
 
-## JSON (gateway, bus, modern)
-Una línea por evento, UTF-8, máx. 1024 bytes.
-```json
-{"ts":"2026-11-12T15:30:45.123Z","layer":"bus","id":"BUS-1a2b3c4d5e6f","parent_id":"GW-aabbccddeeff","status":200,"duration_ms":12}
+Cada capa usa el protocolo y el formato de log que tendría en una integración empresarial real (ver
+[ADR-0005](adr/0005-heterogeneous-sources.md)). Explicación visual con ejemplos reales: [flujo-y-telemetria.md](flujo-y-telemetria.md).
+
+## 1. Mensajes entre capas (`src/obsproto/wire.py`)
+
+| Salto | Protocolo | ID de la capa anterior |
+|---|---|---|
+| Móvil / web → gateway | REST/JSON, `POST /v1/transactions` | Header `X-Client-Id` |
+| Tercero → gateway | SOAP 1.1, `POST /soap/v1/transactions` | `soapenv:Header/txn:ClientRequestId` |
+| Gateway → bus | SOAP 1.1, `POST /ws/TransactionService` | `soapenv:Header/wsa:MessageID` |
+| Bus → core | Trama, `POST /trama` (`application/octet-stream`) | Posiciones 4–23 |
+| Core → moderno | REST/JSON, `POST /notify` | Header `X-Upstream-Id` |
+
+Namespace de la transacción: `urn:obsproto:txn:v1`. Cuerpo: `Transaction` con exactamente `Type`, `Account` y `AmountCents`.
+
+**Trama de solicitud (60 caracteres)**
+
+| Campo | Pos. | Ancho | Contenido |
+|---|---|---|---|
+| `mti` | 0–3 | 4 | `0200` |
+| `bus_id` | 4–23 | 20 | `BUS-<12 hex>`, alineado a la izquierda |
+| `txn` | 24–27 | 4 | `TRF `, `PAY `, `BAL ` |
+| `account` | 28–47 | 20 | PIC X(20): dígitos alineados a la izquierda, relleno con espacios |
+| `amount` | 48–59 | 12 | centavos, ceros a la izquierda |
+
+**Trama de respuesta (26 caracteres):** `mti` = `0210` (4) · `bus_id` eco (20) · `rc` (2): `00` OK, `91` fallo.
+El resultado del core va en `rc`; la respuesta HTTP es siempre 200 si la trama es válida.
+
+## 2. Logs, uno por tipo de fuente
+
+### Gateway: access log `clave=valor`
 ```
-El gateway agrega `"channel"` (`mobile` | `web` | `partner`), derivado de la API key (no de un header del cliente).
-`json.dumps` escapa saltos de línea: un valor malicioso no puede fabricar una segunda entrada.
+2026-11-18T14:42:28.676Z INFO  gateway tid=GW-7c22b329b483 in_id=CLI-58860194592d ch=partner proto=SOAP status=200 upstream=200 dur_ms=14
+```
+`tid` = ID propio · `in_id` = ID recibido · `ch` se deriva de la API key (no de un header del cliente) ·
+`status` = lo que recibió el cliente · `upstream` = lo que respondió el bus (503 = timeout o caída).
 
-## Core legacy: ancho fijo (81 caracteres + `\n`)
+### Bus: texto con niveles
+```
+<ts> INFO  [ESB.TransactionRoute] thread=T30496 received SOAP Submit upstream=GW-…
+<ts> DEBUG [ESB.TransactionRoute] thread=T30496 mapped msgId=BUS-… upstream=GW-… out=CORE.TRAMA
+<ts> INFO  [ESB.TransactionRoute] thread=T30496 reply msgId=BUS-… rc=00 dur_ms=14
+```
+El par completo solo está en la línea **DEBUG** `mapped`. `rc`: `00` OK, `91` fallo del core, `TO` timeout o caída,
+`XX` trama de respuesta inválida (los no `00` se registran como `ERROR`). Nivel con `BUS_LOG_LEVEL` (por defecto `DEBUG`).
+
+### Core legacy: ancho fijo (81 caracteres + `\n`)
 Definido una sola vez en `CORE_LAYOUT` (`src/obsproto/common.py`); el simulador y el parser comparten la tupla.
 
 | Campo | Pos. (0-based) | Ancho | Contenido |
@@ -21,15 +59,26 @@ Definido una sola vez en `CORE_LAYOUT` (`src/obsproto/common.py`); el simulador 
 | `status` | 73–74 | 2 | `00` OK · `91` fallo simulado |
 | `dur_ms` | 75–80 | 6 | duración, ceros a la izquierda |
 
-Ejemplo:
 ```
-20261112153045123CORE-1a2b3c4d5e6f   BUS-aabbccddeeff    TRF 00000000250000000042
+20261118144228675CORE-c0f0ac5c0476   BUS-3c414414810d    BAL 00000000735600000014
 ```
 > El log del core **no contiene número de cuenta** (minimización de datos): solo lo necesario para correlacionar.
 
-## Reglas de validación del parser (seguridad)
-- Longitud exacta (core) o ≤ 1024 (JSON); ASCII en el core.
-- ID propio y padre con regex estricta `^(CLI|GW|BUS|CORE|MOD)-[0-9a-f]{12}\Z`.
-- El prefijo del ID propio y el del padre deben corresponder a la capa declarada (`bus` ⇒ `BUS-` con padre `GW-`).
-  Un log manipulado no puede saltarse capas.
+### Servicio moderno: spans OpenTelemetry (JSON, una línea por span)
+```json
+{"resource":{"service.name":"modern-notifications"},"traceId":"ba6b…","spanId":"7613…","parentSpanId":"",
+ "name":"POST /notify","kind":"SPAN_KIND_SERVER","startTimeUnixNano":…,"endTimeUnixNano":…,
+ "status":{"code":"STATUS_CODE_OK"},"attributes":{"app.id":"MOD-…","upstream.id":"CORE-…", …}}
+```
+Como el core no propaga `traceparent`, cada span abre una traza OTel nueva. El eslabón está en los atributos
+`upstream.id` → `app.id`; el correlacionador conserva el `traceId` como `otelTraceId` en la traza reconstruida.
+
+## 3. Reglas de validación (seguridad)
+- **Mensajes:** cuerpo ≤ 4 KB. SOAP: se rechaza `<!DOCTYPE`/`<!ENTITY` antes de parsear (XXE, expansión de entidades),
+  raíz `soapenv:Envelope` y campos exactos. Trama: longitud exacta, ASCII, MTI conocido, ID `BUS-`, campos numéricos.
+  Después, en todas las capas, `validate_txn` (lista blanca de campos, tipos y rangos).
+- **Logs:** cada línea es entrada no confiable. Longitud exacta (core) o ≤ 1024; regex anclada de la línea completa
+  (gateway, bus); ID propio y padre con `^(CLI|GW|BUS|CORE|MOD)-[0-9a-f]{12}\Z`, y el prefijo de cada uno debe
+  corresponder a la capa (`bus` ⇒ `BUS-` con padre `GW-`), así que un log manipulado no puede saltarse capas.
 - Líneas inválidas se cuentan (`malformedLines`) y se descartan; nunca detienen al correlacionador.
+- El parser del bus **no** une por hilo ni por tiempo: sin la línea DEBUG la respuesta queda sin padre (`busUnlinkedReplies`).

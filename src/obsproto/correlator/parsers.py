@@ -1,4 +1,9 @@
-"""Parsers de log -> Event. Funciones puras, sin I/O, pensadas para probarse a fondo.
+"""Parsers de log -> Event, uno por TIPO de fuente (ver docs/log-formats.md):
+
+  gateway  access log de texto con pares clave=valor        parse_gateway_line
+  bus      log de texto con niveles; el par está en DEBUG   BusLogParser (con estado)
+  core     registro de ancho fijo, 81 caracteres            parse_core_line
+  modern   spans JSON al estilo OpenTelemetry               parse_span_line
 
 Seguridad: toda línea es entrada no confiable. Se valida longitud, formato de IDs y que
 el prefijo del ID propio y el del padre correspondan a la capa declarada (un log
@@ -8,9 +13,11 @@ manipulado no puede inyectar enlaces entre capas que no son contiguas).
 from __future__ import annotations
 
 import json
+import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 from obsproto.common import CORE_LAYOUT, CORE_RECORD_LEN, valid_id
 
@@ -18,6 +25,7 @@ LAYER_ORDER = ("gateway", "bus", "core", "modern")
 OWN_PREFIX = {"gateway": "GW", "bus": "BUS", "core": "CORE", "modern": "MOD"}
 PARENT_PREFIX = {"gateway": "CLI", "bus": "GW", "core": "BUS", "modern": "CORE"}
 MAX_LINE = 1024
+HEX32 = re.compile(r"^[0-9a-f]{32}\Z")
 
 
 @dataclass(frozen=True)
@@ -28,35 +36,117 @@ class Event:
     end_ts: float  # epoch en segundos (momento de registro, al terminar la operación)
     duration_ms: int
     status: str
+    ext_trace_id: Optional[str] = None  # traceId OTel propio de la fuente, si lo tiene
 
 
 def _ids_consistent(layer: str, own: str, parent: str) -> bool:
     return valid_id(own, OWN_PREFIX[layer]) and valid_id(parent, PARENT_PREFIX[layer])
 
 
-def parse_json_line(line: str) -> Optional[Event]:
-    """Log JSON de gateway, bus y modern. Devuelve None si la línea no es válida."""
+def _iso_ts(value: str) -> float:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+
+# --------------------------------------------------------------------------- #
+# Gateway: access log de texto, una línea por transacción
+#   2026-11-18T14:24:22.105Z INFO  gateway tid=GW-… in_id=CLI-… ch=partner proto=SOAP status=200 upstream=200 dur_ms=48
+# --------------------------------------------------------------------------- #
+_GW_LINE = re.compile(r"^(?P<ts>\S+) (?P<lvl>DEBUG|INFO|WARN|ERROR) +gateway (?P<kv>(?:[a-z_]+=\S+ ?)+)\Z")
+
+
+def parse_gateway_line(line: str) -> Optional[Event]:
     if not line or len(line) > MAX_LINE:
         return None
+    m = _GW_LINE.match(line)
+    if not m:
+        return None
+    kv: Dict[str, str] = dict(pair.split("=", 1) for pair in m["kv"].split())
+    own, parent = kv.get("tid", ""), kv.get("in_id", "")
+    if not _ids_consistent("gateway", own, parent):
+        return None
+    if not (kv.get("dur_ms", "").isdigit() and kv.get("status", "").isdigit()):
+        return None
     try:
-        rec = json.loads(line)
-        layer = rec["layer"]
-        if layer not in OWN_PREFIX or layer == "core":
-            return None
-        own, parent = rec["id"], rec["parent_id"]
-        if not _ids_consistent(layer, own, parent):
-            return None
-        duration = rec["duration_ms"]
-        if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0:
-            return None
-        ts = datetime.fromisoformat(str(rec["ts"]).replace("Z", "+00:00"))
-        return Event(layer, own, parent, ts.timestamp(), duration, str(rec.get("status", "")))
-    except (ValueError, KeyError, TypeError):
+        return Event("gateway", own, parent, _iso_ts(m["ts"]), int(kv["dur_ms"]), kv["status"])
+    except ValueError:
         return None
 
 
+# --------------------------------------------------------------------------- #
+# Bus: log de texto con niveles. Tres tipos de línea por transacción:
+#   INFO  … received SOAP Submit upstream=GW-…              (ID recibido, sin ID propio)
+#   DEBUG … mapped msgId=BUS-… upstream=GW-… out=CORE.TRAMA   (el PAR completo: solo en DEBUG)
+#   INFO  … reply msgId=BUS-… rc=00 dur_ms=44                (ID propio, resultado y duración)
+# --------------------------------------------------------------------------- #
+_ID = r"[A-Z]{2,4}-[0-9a-f]{12}"
+_BUS_LINE = re.compile(
+    r"^(?P<ts>\S+) (?P<lvl>DEBUG|INFO|WARN|ERROR) +\[ESB\.TransactionRoute\] thread=T\d{5} "
+    rf"(?:received SOAP Submit upstream=(?P<rx>{_ID})"
+    rf"|mapped msgId=(?P<mid>{_ID}) upstream=(?P<mup>{_ID}) out=CORE\.TRAMA"
+    rf"|reply msgId=(?P<rid>{_ID}) rc=(?P<rc>[0-9A-Z]{{2}}) dur_ms=(?P<dur>\d{{1,7}}))\Z"
+)
+
+
+class BusLogParser:
+    """Une la línea DEBUG (par de IDs) con la línea INFO de respuesta (estado y duración).
+
+    Con el bus en INFO nunca llega la línea DEBUG: las respuestas quedan sin padre
+    (``unlinked``) y la cadena se corta en el bus. No se intenta adivinar el par por hilo
+    ni por tiempo, porque eso inventaría enlaces bajo concurrencia.
+    """
+
+    def __init__(self, max_pending: int = 100_000) -> None:
+        self.max_pending = max_pending
+        self._parent: OrderedDict[str, str] = OrderedDict()
+        self._reply: OrderedDict[str, Tuple[float, int, str]] = OrderedDict()
+        self.received = 0
+
+    @property
+    def unlinked(self) -> int:
+        """Respuestas del bus cuyo ID recibido nunca apareció (p. ej. log en INFO)."""
+        return len(self._reply)
+
+    def _bound(self, d: OrderedDict) -> None:
+        while len(d) > self.max_pending:
+            d.popitem(last=False)
+
+    def __call__(self, line: str) -> Optional[List[Event]]:
+        if not line or len(line) > MAX_LINE:
+            return None
+        m = _BUS_LINE.match(line)
+        if not m:
+            return None
+        try:
+            ts = _iso_ts(m["ts"])
+        except ValueError:
+            return None
+        if m["rx"]:
+            if not valid_id(m["rx"], "GW"):
+                return None
+            self.received += 1
+            return []
+        if m["mid"]:
+            own, parent = m["mid"], m["mup"]
+            if not _ids_consistent("bus", own, parent):
+                return None
+            self._parent[own] = parent
+            self._bound(self._parent)
+        else:
+            own = m["rid"]
+            if not valid_id(own, "BUS"):
+                return None
+            self._reply[own] = (ts, int(m["dur"]), m["rc"])
+            self._bound(self._reply)
+        if own in self._parent and own in self._reply:
+            end_ts, dur, rc = self._reply.pop(own)
+            return [Event("bus", own, self._parent.pop(own), end_ts, dur, rc)]
+        return []
+
+
+# --------------------------------------------------------------------------- #
+# Core: registro de ancho fijo (ver docs/log-formats.md)
+# --------------------------------------------------------------------------- #
 def parse_core_line(line: str) -> Optional[Event]:
-    """Log de ancho fijo del core (ver docs/log-formats.md)."""
     line = line.rstrip("\r\n")
     if len(line) != CORE_RECORD_LEN or not line.isascii():
         return None
@@ -75,4 +165,27 @@ def parse_core_line(line: str) -> Optional[Event]:
             return None
         return Event("core", core_id, parent, end_ts, int(fields["dur_ms"]), fields["status"])
     except ValueError:
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# Moderno: spans JSON al estilo OpenTelemetry; el eslabón está en los atributos
+# --------------------------------------------------------------------------- #
+def parse_span_line(line: str) -> Optional[Event]:
+    if not line or len(line) > MAX_LINE:
+        return None
+    try:
+        span = json.loads(line)
+        attrs = span["attributes"]
+        own, parent = attrs["app.id"], attrs["upstream.id"]
+        if not (isinstance(own, str) and isinstance(parent, str) and _ids_consistent("modern", own, parent)):
+            return None
+        start, end = span["startTimeUnixNano"], span["endTimeUnixNano"]
+        if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in (start, end)) or end < start:
+            return None
+        trace_id = span.get("traceId")
+        trace_id = trace_id if isinstance(trace_id, str) and HEX32.match(trace_id) else None
+        ok = span.get("status", {}).get("code") == "STATUS_CODE_OK"
+        return Event("modern", own, parent, end / 1e9, (end - start) // 1_000_000, "OK" if ok else "ERROR", trace_id)
+    except (ValueError, KeyError, TypeError, AttributeError):
         return None

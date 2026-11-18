@@ -44,6 +44,7 @@ class Trace:
                     "startOffsetMs": max(0, int((e.end_ts - e.duration_ms / 1000 - t0) * 1000)),
                     "durationMs": e.duration_ms,
                     "status": e.status,
+                    **({"otelTraceId": e.ext_trace_id} if e.ext_trace_id else {}),
                 }
                 for e in self.events
             ],
