@@ -26,6 +26,11 @@
 - [x] AWS actualizado a `v0.2.0` (18-nov): 500/500 trazas completas con las 4 fuentes; con calentamiento, p99 222 ms (antes 1,6 s), pero solo 117 rps y p50 166 ms (`evidence/aws-v020-warm-2026-11-18.json`)
 - [~] Hallazgo: la primera corrida tras arrancar es lenta (p95 ~2 s); el calentamiento corrige la cola en AWS, no el throughput. Hipótesis: CPU (2 vCPU compartidas con el generador). Confirmar cargando desde otra instancia
 
+## Tablero de CloudWatch (18-nov, v0.2.1)
+- [x] `obsproto-pruebas` creado por CloudFormation (change set: solo agrega el tablero)
+- [x] Generador publica series por escenario (`--cw-scenario`); monitor del host como servicio systemd
+- [x] Demostración en AWS: escenario `aws-demo-c20`, 600/600 trazas completas, publicado en CloudWatch
+
 ## Siguiente
 - [x] En AWS: 5 contenedores `healthy`, `ReadonlyRootfs=true`, usuario 10001 (18-nov)
 - [x] Repo publicado en https://github.com/julian012/M_AYGO-chaining-observability, CI en verde (5 jobs) y tag `v0.1.0` (18-nov)

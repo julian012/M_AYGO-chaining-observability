@@ -178,6 +178,10 @@ cómo registran.
 
 ## 7. Escenarios de carga
 
+Cada escenario se publica en el tablero de CloudWatch `obsproto-pruebas` con su nombre (`--cw-scenario`), junto con la CPU y
+memoria de cada contenedor y el estado del correlacionador. Ver [`infra/README.md`](../infra/README.md).
+
+
 | Escenario | Qué se cambia | Qué se espera | Métrica |
 |---|---|---|---|
 | Calentamiento | Una corrida corta antes de medir; no se reporta | Evitar el arranque en frío | — |
