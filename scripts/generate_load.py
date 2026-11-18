@@ -20,6 +20,7 @@ import random
 import secrets
 import ssl
 import statistics
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -76,7 +77,7 @@ def one_request(args: argparse.Namespace, ctx: ssl.SSLContext | None, keys: dict
         url, body = base + "/v1/transactions", json.dumps(txn).encode()
         headers = {"Content-Type": "application/json", "X-Client-Id": client_id}
     req = urllib.request.Request(url, data=body, headers={**headers, "X-Api-Key": keys[channel]}, method="POST")  # noqa: S310
-    start = time.monotonic()
+    wall, start = time.time(), time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=args.timeout, context=ctx) as resp:  # noqa: S310
             status = resp.status
@@ -90,6 +91,7 @@ def one_request(args: argparse.Namespace, ctx: ssl.SSLContext | None, keys: dict
         "proto": "SOAP" if soap else "REST",
         "status": status,
         "ms": (time.monotonic() - start) * 1000,
+        "t": wall,
     }
 
 
@@ -113,6 +115,37 @@ def check_traces(base: str, token: str, ids: list) -> dict:
     return {"checked": len(ids), "found": found, "complete": complete}
 
 
+def publish_cloudwatch(args: argparse.Namespace, results: list, summary: dict) -> dict:
+    """Serie por ventanas (rps, latencias, errores) + resumen final, con dimensión Scenario.
+
+    Se publica al terminar la corrida para no quitarle CPU a la prueba.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from cw_metrics import datum, publish
+
+    sc, w = args.cw_scenario, args.window
+    buckets: dict = {}
+    for r in results:
+        buckets.setdefault(int(r["t"] // w), []).append(r)
+    data = []
+    for b, rs in sorted(buckets.items()):
+        ts = (b + 1) * w
+        ok = sorted(r["ms"] for r in rs if r["status"] == 200)
+        data.append(datum("Throughput", len(rs) / w, "Count/Second", ts, Scenario=sc))
+        data.append(datum("Errors", len(rs) - len(ok), "Count", ts, Scenario=sc))
+        if ok:
+            data.append(datum("LatencyP50", statistics.median(ok), "Milliseconds", ts, Scenario=sc))
+            data.append(datum("LatencyP95", percentile(ok, 0.95), "Milliseconds", ts, Scenario=sc))
+            data.append(datum("LatencyP99", percentile(ok, 0.99), "Milliseconds", ts, Scenario=sc))
+    end = max(r["t"] for r in results)
+    for proto, p in summary.get("byProtocol", {}).items():
+        data.append(datum("LatencyP95", p["p95"], "Milliseconds", end, Scenario=sc, Protocol=proto))
+    cor = summary.get("correlation") or {}
+    if cor.get("completePct") is not None:
+        data.append(datum("CompleteTracesPct", cor["completePct"], "Percent", end, Scenario=sc))
+    return {"scenario": sc, "datapoints": len(data), "published": publish(data)}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default="https://127.0.0.1:8443")
@@ -123,6 +156,8 @@ def main() -> None:
     ap.add_argument("--correlator", default="", help="URL del correlacionador para verificar trazas")
     ap.add_argument("--settle", type=float, default=3.0, help="segundos de espera antes de consultar trazas")
     ap.add_argument("--rest-only", action="store_true", help="todos los canales por REST (línea base sin SOAP)")
+    ap.add_argument("--cw-scenario", default="", help="publica la serie en CloudWatch con este nombre de escenario")
+    ap.add_argument("--window", type=float, default=10.0, help="tamaño de la ventana en segundos para CloudWatch")
     ap.add_argument("--out", default="", help="archivo JSON donde guardar el resumen (p. ej. evidence/run.json)")
     args = ap.parse_args()
 
@@ -177,6 +212,8 @@ def main() -> None:
         )
         c = summary["correlation"]
         c["completePct"] = round(100 * c["complete"] / c["checked"], 2) if c["checked"] else None
+    if args.cw_scenario:
+        summary["cloudwatch"] = publish_cloudwatch(args, results, summary)
     print(json.dumps(summary, indent=2))
     if args.out:
         Path(args.out).write_text(json.dumps(summary, indent=2))

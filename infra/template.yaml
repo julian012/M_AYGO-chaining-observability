@@ -162,6 +162,354 @@ Resources:
           GATEWAY_BIND=0.0.0.0 scripts/gen-env.sh
           docker compose up -d --build
 
+  # ---- Tablero de las pruebas de carga (métricas propias, namespace ObsProto) ----
+  TestDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: obsproto-pruebas
+      DashboardBody: !Sub |
+          {
+           "start": "-PT3H",
+           "periodOverride": "inherit",
+           "widgets": [
+            {
+             "type": "text",
+             "x": 0,
+             "y": 0,
+             "width": 24,
+             "height": 3,
+             "properties": {
+              "markdown": "## Pruebas de carga · obsproto\nCada escenario es una corrida de `scripts/generate_load.py --cw-scenario <nombre>`. Las series del **generador** (fila 1 y 2) se publican al terminar la corrida, en ventanas de 10 s. Las del **host** (filas 3 y 4) las publica `scripts/monitor_host.py` cada 10 s mientras corre la prueba. Guía de escenarios: `docs/flujo-y-telemetria.md` (sección 7). Evidencia en `evidence/*.json`."
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 3,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Transacciones por segundo (generador)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"Throughput\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "rps",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 3,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Latencia p95 (ms)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"LatencyP95\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "ms",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 9,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Errores por ventana de 10 s",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"Errors\"', 'Sum', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Sum",
+              "yAxis": {
+               "left": {
+                "label": "errores",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 9,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "% de trazas completas al final de cada escenario",
+              "view": "bar",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"CompleteTracesPct\"', 'Maximum', 60)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 60,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "%",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 15,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "CPU por contenedor (%)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Container} MetricName=\"CPUPercent\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "% de 1 vCPU",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 15,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Memoria por contenedor (MB)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Container} MetricName=\"MemoryMB\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "MB",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 21,
+             "width": 8,
+             "height": 6,
+             "properties": {
+              "title": "Correlacionador: % de trazas completas acumulado",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Source} MetricName=\"CompletenessPct\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "%",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 8,
+             "y": 21,
+             "width": 8,
+             "height": 6,
+             "properties": {
+              "title": "Respuestas del bus sin padre · líneas descartadas",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Source} MetricName=\"BusUnlinkedReplies\"', 'Maximum', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ],
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Source} MetricName=\"MalformedLines\"', 'Maximum', 10)",
+                 "label": "",
+                 "id": "e1"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "líneas",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 16,
+             "y": 21,
+             "width": 8,
+             "height": 6,
+             "properties": {
+              "title": "Eventos leídos por capa",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Layer} MetricName=\"EventsIngested\"', 'Maximum', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "eventos",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 27,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "CPU de la instancia (EC2, resolución 5 min)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "stat": "Average",
+              "period": 300,
+              "metrics": [
+               [
+                "AWS/EC2",
+                "CPUUtilization",
+                "InstanceId",
+                "${AppInstance}"
+               ]
+              ],
+              "yAxis": {
+               "left": {
+                "min": 0,
+                "max": 100
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 27,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "REST frente a SOAP: p95 por escenario (ms)",
+              "view": "bar",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Protocol,Scenario} MetricName=\"LatencyP95\"', 'Maximum', 60)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 60,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "ms",
+                "showUnits": false
+               }
+              }
+             }
+            }
+           ]
+          }
+
 Outputs:
   InstanceId:
     Value: !Ref AppInstance
@@ -174,3 +522,6 @@ Outputs:
     Value: !Sub "ssh -i labsuser.pem -L 9100:127.0.0.1:9100 ec2-user@${AppInstance.PublicIp}"
   EvidenceBucketName:
     Value: !Ref EvidenceBucket
+  DashboardUrl:
+    Description: Tablero de CloudWatch con los resultados de las pruebas de carga.
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/obsproto-pruebas"
