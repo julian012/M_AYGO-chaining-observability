@@ -64,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint del Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.5.0
         with: { dockerfile: Dockerfile }
       - run: docker build -t obsproto:ci .
       - name: Escaneo de la imagen (Trivy)
