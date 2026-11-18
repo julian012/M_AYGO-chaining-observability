@@ -17,9 +17,9 @@
 - [x] TLS del gateway verificado en local: cert de confianza ⇒ 200; sin confiar, HTTP plano y TLS 1.1 ⇒ rechazados; HSTS y `nosniff` presentes
 
 ## Siguiente
-- [ ] Verificar healthchecks, `read_only` y volúmenes `:ro` en ejecución real
-- [~] Repo publicado en https://github.com/julian012/M_AYGO-chaining-observability (18-nov); falta ver el CI en verde y crear el tag `v0.1.0`
-- [ ] Primer despliegue en el Learner Lab con `infra/README.md`
+- [x] En AWS: 5 contenedores `healthy`, `ReadonlyRootfs=true`, usuario 10001 (18-nov)
+- [x] Repo publicado en https://github.com/julian012/M_AYGO-chaining-observability, CI en verde (5 jobs) y tag `v0.1.0` (18-nov)
+- [x] Despliegue en el Learner Lab (stack `obsproto`, t3.medium): 500/500 trazas completas, 87 rps, p95 303 ms, p99 1,6 s (`evidence/aws-smoke-2026-11-18.json`). El throughput es mucho menor que en local (479 rps): investigar en las pruebas de estrés
 - [ ] Exportar spans a OTLP + Grafana (dashboard de flujo y búsqueda por cualquier ID)
 - [ ] Plan de pruebas de estrés (k6/Locust): carga normal, pico, sostenida, caída del core/bus
 - [ ] Medir overhead con/sin correlacionador y tiempo de localización manual vs. modelo
