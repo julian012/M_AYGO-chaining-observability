@@ -1,0 +1,176 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Prototipo de observabilidad: una instancia EC2 con Docker Compose + un bucket cifrado para evidencias.
+  Diseñada para AWS Academy Learner Lab (sin iam:CreateRole: usa el LabInstanceProfile existente)
+  y para un presupuesto reducido (sin NAT Gateway, sin ALB, sin EKS).
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC por defecto de la cuenta (aws ec2 describe-vpcs --filters Name=isDefault,Values=true).
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subred pública de esa VPC (necesita IP pública para instalar paquetes).
+  AllowedCidr:
+    Type: String
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/(3[0-2]|[12]?\d)$'
+    ConstraintDescription: CIDR IPv4 válido, p. ej. 203.0.113.10/32 (tu IP pública). No se permite 0.0.0.0/0.
+    Description: Único origen que puede llegar por SSH y al gateway. Usa tu IP /32.
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.small, t3.medium, t3.large]
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: vockey
+    Description: Llave SSH existente (en el Learner Lab es vockey).
+  InstanceProfileName:
+    Type: String
+    Default: LabInstanceProfile
+    Description: Perfil de instancia existente. No se crean roles IAM (denegado en el Learner Lab).
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  RepoUrl:
+    Type: String
+    AllowedPattern: '^https://[A-Za-z0-9./_-]+\.git$'
+    Description: URL HTTPS (repositorio público) desde donde la instancia clona el prototipo.
+  RepoRef:
+    Type: String
+    Default: main
+    AllowedPattern: '^[A-Za-z0-9._/-]+$'
+    Description: Rama o tag a desplegar (preferible un tag inmutable, p. ej. v1.0.0).
+  ComposeVersion:
+    Type: String
+    Default: v2.29.7
+    AllowedPattern: '^v\d+\.\d+\.\d+$'
+    Description: Versión fijada del plugin docker compose.
+
+Rules:
+  NoOpenToWorld:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AllowedCidr, "0.0.0.0/0"]]
+        AssertDescription: AllowedCidr no puede ser 0.0.0.0/0 (la instancia no debe quedar abierta a Internet).
+
+Resources:
+  # ---- Red: solo tu IP entra; la salida se limita a lo imprescindible ----
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Prototipo observabilidad - acceso minimo desde una unica IP
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref AllowedCidr, Description: "SSH (y tunel al correlacionador)" }
+        - { IpProtocol: tcp, FromPort: 8443, ToPort: 8443, CidrIp: !Ref AllowedCidr, Description: "Gateway TLS" }
+      SecurityGroupEgress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: "HTTPS (paquetes, imagenes, git)" }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: "HTTP (repositorios de paquetes)" }
+        - { IpProtocol: udp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS" }
+        - { IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS sobre TCP" }
+      Tags:
+        - { Key: Project, Value: obsproto }
+
+  # ---- Evidencias de pruebas: cifrado, sin acceso publico, solo TLS ----
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - { Id: expire-evidence, Status: Enabled, ExpirationInDays: 30 }
+      Tags:
+        - { Key: Project, Value: obsproto }
+
+  EvidenceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EvidenceBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt EvidenceBucket.Arn
+              - !Sub "${EvidenceBucket.Arn}/*"
+            Condition:
+              Bool: { "aws:SecureTransport": "false" }
+
+  # ---- Computo ----
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfileName
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref InstanceSecurityGroup]
+      Monitoring: false
+      MetadataOptions:
+        HttpTokens: required # IMDSv2 obligatorio (mitiga robo de credenciales por SSRF)
+        HttpPutResponseHopLimit: 1 # los contenedores no pueden alcanzar el servicio de metadatos
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 20
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - { Key: Name, Value: obsproto }
+        - { Key: Project, Value: obsproto }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Sin secretos aqui: .env y el certificado se generan EN la instancia (scripts/gen-*.sh).
+          set -euxo pipefail
+          dnf install -y docker git openssl
+          systemctl enable --now docker
+
+          # Plugin de compose con version fijada y verificacion de integridad (SHA-256)
+          PLUGIN_DIR=/usr/local/lib/docker/cli-plugins
+          BASE=https://github.com/docker/compose/releases/download/${ComposeVersion}
+          mkdir -p "$PLUGIN_DIR"
+          curl -fsSL -o "$PLUGIN_DIR/docker-compose" "$BASE/docker-compose-linux-x86_64"
+          EXPECTED=$(curl -fsSL "$BASE/docker-compose-linux-x86_64.sha256" | awk '{print $1}')
+          ACTUAL=$(sha256sum "$PLUGIN_DIR/docker-compose" | awk '{print $1}')
+          [ -n "$EXPECTED" ] && [ "$EXPECTED" = "$ACTUAL" ]
+          chmod 755 "$PLUGIN_DIR/docker-compose"
+
+          # IP publica via IMDSv2 para el SAN del certificado
+          TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+          PUBLIC_IP=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
+
+          git clone --depth 1 --branch ${RepoRef} ${RepoUrl} /opt/obsproto
+          cd /opt/obsproto
+          scripts/gen-certs.sh "$PUBLIC_IP"
+          GATEWAY_BIND=0.0.0.0 scripts/gen-env.sh
+          docker compose up -d --build
+
+Outputs:
+  InstanceId:
+    Value: !Ref AppInstance
+  PublicIp:
+    Value: !GetAtt AppInstance.PublicIp
+  GatewayUrl:
+    Value: !Sub "https://${AppInstance.PublicIp}:8443"
+  CorrelatorTunnel:
+    Description: El correlacionador no se expone; accede por tunel SSH.
+    Value: !Sub "ssh -i labsuser.pem -L 9100:127.0.0.1:9100 ec2-user@${AppInstance.PublicIp}"
+  EvidenceBucketName:
+    Value: !Ref EvidenceBucket
