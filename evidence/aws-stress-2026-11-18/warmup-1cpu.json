@@ -1,0 +1,51 @@
+{
+  "scenario": "aws-warmup-1cpu",
+  "startedAt": "2026-11-19T03:57:09+00:00",
+  "params": {
+    "n": 300,
+    "concurrency": 10,
+    "duration": null,
+    "restOnly": false,
+    "url": "https://172.31.5.103:8443"
+  },
+  "requests": 300,
+  "ok": 300,
+  "errors": 0,
+  "statusCounts": {
+    "200": 300
+  },
+  "elapsedSec": 3.4,
+  "throughputRps": 89.5,
+  "byProtocol": {
+    "REST": {
+      "requests": 200,
+      "ok": 200,
+      "p50": 69.9,
+      "p95": 190.0
+    },
+    "SOAP": {
+      "requests": 100,
+      "ok": 100,
+      "p50": 72.5,
+      "p95": 206.5
+    }
+  },
+  "latencyMs": {
+    "p50": 70.5,
+    "p95": 190.0,
+    "p99": 1298.5
+  },
+  "cloudwatch": {
+    "scenario": "aws-warmup-1cpu",
+    "datapoints": 12,
+    "published": true
+  },
+  "correlation": {
+    "checked": 300,
+    "found": 300,
+    "complete": 300,
+    "incompleteByMissingLayers": {},
+    "completePct": 100.0,
+    "sampled": "all"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "scenario": "aws-fault-core-10pct",
+  "startedAt": "2026-11-19T04:11:30+00:00",
+  "params": {
+    "n": 1500,
+    "concurrency": 20,
+    "duration": null,
+    "restOnly": false,
+    "url": "https://172.31.5.103:8443"
+  },
+  "requests": 1500,
+  "ok": 1338,
+  "errors": 162,
+  "statusCounts": {
+    "200": 1338,
+    "500": 60,
+    "502": 102
+  },
+  "elapsedSec": 16.1,
+  "throughputRps": 92.9,
+  "byProtocol": {
+    "REST": {
+      "requests": 1000,
+      "ok": 898,
+      "p50": 187.9,
+      "p95": 396.3
+    },
+    "SOAP": {
+      "requests": 500,
+      "ok": 440,
+      "p50": 185.4,
+      "p95": 401.1
+    }
+  },
+  "latencyMs": {
+    "p50": 187.4,
+    "p95": 396.9,
+    "p99": 811.9
+  },
+  "cloudwatch": {
+    "scenario": "aws-fault-core-10pct",
+    "datapoints": 12,
+    "published": true
+  },
+  "correlation": {
+    "checked": 1500,
+    "found": 1500,
+    "complete": 1500,
+    "incompleteByMissingLayers": {},
+    "completePct": 100.0,
+    "sampled": "all"
+  }
+}
