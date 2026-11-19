@@ -46,7 +46,7 @@ def set_env(path: Path, values: dict) -> None:
     path.write_text("\n".join(out) + "\n")
 
 
-def wait_healthy(n: int = 5) -> None:
+def wait_healthy(n: int = 6) -> None:
     for _ in range(80):
         health = sh(DOCKER, "compose", "ps", "--format", "{{.Health}}", check=False).split()
         if health.count("healthy") >= n:
@@ -100,7 +100,7 @@ def main() -> None:
                     "--correlator",
                     "http://127.0.0.1:9100",
                     "--settle",
-                    "8",
+                    "12",
                 )
             )
             truth = out / f"truth-{label}.log"

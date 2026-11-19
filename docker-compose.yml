@@ -58,7 +58,7 @@ services:
       BUS_TRACE_LOG: ${BUS_TRACE_LOG:-clear} # clear | token | mask | none: cómo queda el tracenumber en el log
       BUS_TRACE_MASK_DIGITS: ${BUS_TRACE_MASK_DIGITS:-4}
       TRACE_TOKEN_KEY: ${TRACE_TOKEN_KEY:-}
-      CORE_URL: http://core:8082
+      CORE_ADDR: core:9000 # tramas por socket TCP (cabecera de longitud de 4 dígitos), no HTTP
     volumes: ["logs-bus:/var/log/app"]
     networks: [internal]
     healthcheck: *hc
@@ -69,17 +69,22 @@ services:
     command: ["python", "-m", "obsproto.core"]
     environment:
       <<: *env-common
-      PORT: "8082"
+      PORT: "9000" # servidor TCP de tramas
+      HEALTH_MODE: tcp
       LOG_FILE: /var/log/app/core.log
       CORE_LINK: ${CORE_LINK:-frame}
-      MODERN_URL: http://modern:8083
       FAULT_RATE: ${FAULT_RATE:-0.0}
       LATENCY_MIN_MS: ${LATENCY_MIN_MS:-5}
       LATENCY_MAX_MS: ${LATENCY_MAX_MS:-40}
+      BATCH_INTERVAL_S: ${BATCH_INTERVAL_S:-5} # cada cuánto sube el archivo plano de novedades
+      FTP_HOST: ftp
+      FTP_PORT: "2121"
+      FTP_USER: novedades
+      FTP_PASSWORD: ${FTP_PASSWORD:?ejecuta `make setup` para generar .env}
     volumes: ["logs-core:/var/log/app"]
     networks: [internal]
     healthcheck: *hc
-    depends_on: { modern: { condition: service_healthy } }
+    depends_on: { ftp: { condition: service_healthy } }
 
   modern:
     <<: *hardened
@@ -88,7 +93,28 @@ services:
       <<: *env-common
       PORT: "8083"
       LOG_FILE: /var/log/app/modern.log
+      FTP_HOST: ftp
+      FTP_PORT: "2121"
+      FTP_USER: novedades
+      FTP_PASSWORD: ${FTP_PASSWORD:?ejecuta `make setup` para generar .env}
+      POLL_S: ${POLL_S:-2} # cada cuánto revisa el FTP
     volumes: ["logs-modern:/var/log/app"]
+    networks: [internal]
+    healthcheck: *hc
+    depends_on: { ftp: { condition: service_healthy } }
+
+  # Transferencia de archivos planos core -> moderno. Stand-in FTP (stdlib), solo en la red interna:
+  # FTP viaja en claro; en producción SFTP o FTPS (riesgo residual en docs/threat-model.md).
+  ftp:
+    <<: *hardened
+    command: ["python", "-m", "obsproto.ftpserver"]
+    environment:
+      PORT: "2121"
+      HEALTH_MODE: ftp
+      FTP_ROOT: /srv/ftp
+      FTP_USER: novedades
+      FTP_PASSWORD: ${FTP_PASSWORD:?ejecuta `make setup` para generar .env}
+    volumes: ["ftp-data:/srv/ftp"]
     networks: [internal]
     healthcheck: *hc
 
@@ -118,6 +144,7 @@ networks:
     internal: true # sin ruta a Internet
 
 volumes:
+  ftp-data: {}
   logs-gateway: {}
   logs-bus: {}
   logs-core: {}

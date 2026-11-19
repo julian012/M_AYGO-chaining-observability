@@ -10,8 +10,8 @@ Cada capa usa el protocolo y el formato de log que tendría en una integración 
 | Móvil / web → gateway | REST/JSON, `POST /v1/transactions` | Header `X-Client-Id` |
 | Tercero → gateway | SOAP 1.1, `POST /soap/v1/transactions` | `soapenv:Header/txn:ClientRequestId` |
 | Gateway → bus | SOAP 1.1, `POST /ws/TransactionService` | `soapenv:Header/wsa:MessageID` |
-| Bus → core | Trama, `POST /trama` (`application/octet-stream`) | Posiciones 4–23 |
-| Core → moderno | REST/JSON, `POST /notify` | Header `X-Upstream-Id` |
+| Bus → core | Trama por **socket TCP** (`core:9000`), cada mensaje precedido de su longitud en 4 dígitos ASCII | Posiciones 4–23 |
+| Core → moderno | **Archivo plano** de novedades por **FTP** (`/inbox` → `/procesados`), en lotes | Posiciones 2–21 de cada registro de detalle |
 
 Namespace de la transacción: `urn:obsproto:txn:v1`. Cuerpo: `Transaction` con exactamente `Type`, `Account` y `AmountCents`.
 
@@ -32,6 +32,19 @@ El resultado del core va en `rc`; la respuesta HTTP es siempre 200 si la trama e
 **Modo `CORE_LINK=tracenumber` (core tipo Stratus, [ADR-0006](adr/0006-core-tracenumber-link.md)):** la solicitud lleva el
 campo `bus_id` vacío. El core asigna un consecutivo de 12 dígitos que nunca se repite, lo usa como su ID (`CORE-<tracenumber>`),
 lo registra **sin ID recibido** y lo devuelve en la respuesta.
+
+**Transporte TCP de las tramas:** `<longitud en 4 dígitos ASCII><trama>`, por ejemplo `0060` + 60 caracteres y `0038` + 38 en la
+respuesta. Una conexión puede llevar varios mensajes seguidos. Cabecera inválida (no numérica, 0 o más de 1024) ⇒ se cierra la conexión.
+
+**Archivo plano de novedades (core → moderno, 63 caracteres por línea):** `NOV_<nodo>_<YYYYMMDDHHMMSSmmm>.txt`
+
+| Registro | Contenido |
+|---|---|
+| `00` cabecera | fecha-hora de generación (14) + nodo (8) |
+| `01` detalle | ID del core (20, pos. 2–21) + txn (4) + monto en centavos (12) + estado (2) + hora del movimiento (17) |
+| `99` cola | cantidad de registros de detalle (8): si no cuadra, el archivo no se procesa (`.err`) |
+
+Solo los movimientos exitosos (`00`) generan novedad. El core sube el archivo como `.tmp` y lo renombra a `.txt` al terminar.
 
 ## 2. Logs, uno por tipo de fuente
 
@@ -83,7 +96,7 @@ Definido una sola vez en `CORE_LAYOUT` (`src/obsproto/common.py`); el simulador 
 ### Servicio moderno: spans OpenTelemetry (JSON, una línea por span)
 ```json
 {"resource":{"service.name":"modern-notifications"},"traceId":"ba6b…","spanId":"7613…","parentSpanId":"",
- "name":"POST /notify","kind":"SPAN_KIND_SERVER","startTimeUnixNano":…,"endTimeUnixNano":…,
+ "name":"process NOVEDAD","kind":"SPAN_KIND_SERVER","startTimeUnixNano":…,"endTimeUnixNano":…,
  "status":{"code":"STATUS_CODE_OK"},"attributes":{"app.id":"MOD-…","upstream.id":"CORE-…", …}}
 ```
 Como el core no propaga `traceparent`, cada span abre una traza OTel nueva. El eslabón está en los atributos

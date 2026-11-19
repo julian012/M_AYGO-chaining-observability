@@ -1,7 +1,8 @@
 """Capa 2 – Bus de integración (stand-in genérico de un ESB).
 
 Recibe SOAP del gateway (ID del gateway en ``wsa:MessageID``), genera su ID propio (BUS-...)
-y llama al core con una **trama de ancho fijo** (el ID del bus viaja en las posiciones 4-23).
+y llama al core con una **trama de ancho fijo por un socket TCP** (cabecera de longitud de 4 dígitos);
+el ID del bus viaja en las posiciones 4-23, o no viaja si el core es tipo Stratus.
 
 Log: texto con niveles, como un ESB real. El par (ID recibido -> ID propio) solo queda
 completo en una línea DEBUG; en INFO aparecen por separado la recepción (con el ID del
@@ -17,20 +18,21 @@ from __future__ import annotations
 import sys
 import threading
 
-from obsproto.common import BaseHandler, HttpError, TextLogger, env, new_id, post_raw, serve, timed, valid_id
+from obsproto.common import BaseHandler, HttpError, TextLogger, env, new_id, serve, timed, valid_id
 from obsproto.schema import validate_txn
 from obsproto.tracelink import POLICIES, obfuscate
 from obsproto.wire import (
     SOAP_CONTENT_TYPE,
-    TRAMA_CONTENT_TYPE,
     parse_soap_request,
     parse_trama_response,
     soap_fault,
     soap_response,
+    tcp_exchange,
     trama_request,
 )
 
-CORE_URL = env("CORE_URL", "http://core:8082") + "/trama"
+CORE_HOST, _, _port = env("CORE_ADDR", "core:9000").partition(":")
+CORE_PORT = int(_port or 9000)
 LOG = TextLogger(env("LOG_FILE", "/var/log/app/bus.log"), env("LOG_LEVEL", "DEBUG"))
 FLOW = "[ESB.TransactionRoute]"
 PROFILE = env("BUS_INFO_PROFILE", "split")  # split: par solo en DEBUG · summary: una línea INFO por mensaje
@@ -66,12 +68,10 @@ class BusHandler(BaseHandler):
             LOG.log("DEBUG", f"{FLOW} thread={thread} mapped msgId={bus_id} upstream={gw_id} out=CORE.TRAMA")
 
         frame = trama_request(bus_id, txn, include_id=CORE_LINK != "tracenumber")
-        (status, raw), ms = timed(
-            lambda: post_raw(CORE_URL, frame, TRAMA_CONTENT_TYPE, {"X-Internal-Token": env("INTERNAL_TOKEN")})
-        )
-        parsed = parse_trama_response(raw) if status == 200 else None
+        raw, ms = timed(lambda: tcp_exchange(CORE_HOST, CORE_PORT, frame, timeout=3.0))  # socket TCP, no HTTP
+        parsed = parse_trama_response(raw) if raw is not None else None
         rc, tracenumber = parsed if parsed else (None, None)
-        code = rc if rc is not None else ("TO" if status == 503 else "XX")  # TO: timeout/caída · XX: respuesta inválida
+        code = rc if rc is not None else ("TO" if raw is None else "XX")  # TO: timeout/caída · XX: respuesta inválida
 
         fields = f"reply msgId={bus_id}"
         if PROFILE == "summary":

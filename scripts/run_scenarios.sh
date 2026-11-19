@@ -30,7 +30,7 @@ lg() { "${SSH[@]}" -n "ec2-user@$LOADGEN" "cd /opt/obsproto && $1"; }
 log() { printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
 wait_healthy() {
-  app 'for i in $(seq 1 60); do n=$(docker compose ps --format "{{.Health}}" | grep -c "^healthy$" || true); [ "$n" -ge "${1:-5}" ] && exit 0; sleep 3; done; docker compose ps; exit 1'
+  app 'for i in $(seq 1 60); do n=$(docker compose ps --format "{{.Health}}" | grep -c "^healthy$" || true); [ "$n" -ge "${1:-6}" ] && exit 0; sleep 3; done; docker compose ps; exit 1'
 }
 
 set_env() {  # set_env KEY VALUE servicio  -> cambia .env y recrea solo ese servicio

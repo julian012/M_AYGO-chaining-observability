@@ -21,8 +21,9 @@ flowchart LR
   P -->|"SOAP/XML + API key"| GW
   subgraph "Red interna (sin salida a Internet)"
     GW["Gateway<br/>ID: GW-…"] -->|"SOAP · wsa:MessageID"| BUS["Bus ESB<br/>ID: BUS-…"]
-    BUS -->|"trama ancho fijo"| CORE["Core legacy<br/>ID: CORE-…"]
-    CORE -->|"REST · X-Upstream-Id"| MOD["Servicio moderno<br/>ID: MOD-…"]
+    BUS -->|"trama por socket TCP"| CORE["Core legacy<br/>ID: CORE-…"]
+    CORE -->|"archivo plano, lote cada 5 s"| FTP[("FTP<br/>/inbox")]
+    FTP -->|"descarga y procesa"| MOD["Servicio moderno<br/>ID: MOD-…"]
   end
   GW -.access log clave=valor.-> V1[(vol gateway)]
   BUS -.texto INFO/DEBUG.-> V2[(vol bus)]
@@ -40,8 +41,9 @@ Recorrido paso a paso, mensajes y logs reales de cada capa: [flujo-y-telemetria.
 |---|---|---|---|---|
 | `gateway` | Gateway de seguridad/API tipo appliance | `GW-` (`CLI-`) | REST/JSON y SOAP | Access log `clave=valor` |
 | `bus` | Bus de integración (ESB) | `BUS-` (`GW-`) | SOAP | Texto con niveles; el par en DEBUG |
-| `core` | Core legacy (COBOL) no modificable | `CORE-` (`BUS-`) | Trama de ancho fijo | Registro de ancho fijo |
-| `modern` | Servicio posterior al core | `MOD-` (`CORE-`) | REST/JSON | Spans OpenTelemetry |
+| `core` | Core legacy (COBOL, tipo Stratus) no modificable | `CORE-` (`BUS-`, o ninguno en modo tracenumber) | Trama de ancho fijo por TCP | Registro de ancho fijo; novedades en archivo plano |
+| `ftp` | Transferencia de archivos (stand-in) | — | Archivos planos del core | — |
+| `modern` | Servicio posterior al core | `MOD-` (`CORE-`) | Archivo plano por FTP (en lotes, asíncrono) | Spans OpenTelemetry |
 | `correlator` | Plataforma de observabilidad | — | — | Lee las 4 fuentes |
 
 Todos los nombres son genéricos; los datos son sintéticos.

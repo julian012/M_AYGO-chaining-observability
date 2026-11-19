@@ -4,11 +4,11 @@
   "maskDigits": null,
   "load": {
     "requests": 1500,
-    "throughputRps": 418.9,
+    "throughputRps": 463.1,
     "latencyMs": {
-      "p50": 46.7,
-      "p95": 81.4,
-      "p99": 93.9
+      "p50": 42.1,
+      "p95": 73.8,
+      "p99": 83.3
     },
     "statusCounts": {
       "200": 1500
@@ -44,5 +44,5 @@
     },
     "completeness": 0.0
   },
-  "busLogSample": "2026-11-19T06:46:31.788Z INFO  [ESB.TransactionRoute] thread=T95744 reply msgId=BUS-45158512d111 upstream=GW-87ef3667e09f rc=00 dur_ms=31"
+  "busLogSample": "2026-11-19T07:33:05.450Z INFO  [ESB.TransactionRoute] thread=T53536 reply msgId=BUS-df85a29150e2 upstream=GW-35aefb03d487 rc=00 dur_ms=36"
 }

@@ -139,19 +139,19 @@ ul, ol { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; 
   <h1>Escalera de IDs: cómo viaja una transacción y qué deja cada capa</h1>
   <p class="lead">Cada capa habla un protocolo distinto, genera su propio identificador y deja telemetría en un formato distinto. El ID nunca se propaga completo: cada capa solo le entrega el suyo a la siguiente. El correlacionador lee las cuatro fuentes y reconstruye la cadena uniendo los pares <em>ID recibido → ID propio</em>.</p>
   <div class="chain" aria-label="Cadena de identificadores de una transacción real">
-    <span class="chip c-cli">CLI-58860194592d</span><span class="arrow">→<small>SOAP</small></span>
-    <span class="chip c-gw">GW-7c22b329b483</span><span class="arrow">→<small>SOAP</small></span>
-    <span class="chip c-bus">BUS-3c414414810d</span><span class="arrow">→<small>TRAMA</small></span>
-    <span class="chip c-core">CORE-c0f0ac5c0476</span><span class="arrow">→<small>REST</small></span>
-    <span class="chip c-mod">MOD-2be516eecb9b</span>
+    <span class="chip c-cli">CLI-ea7de2e21cae</span><span class="arrow">→<small>SOAP</small></span>
+    <span class="chip c-gw">GW-f1a1a558edb9</span><span class="arrow">→<small>SOAP</small></span>
+    <span class="chip c-bus">BUS-9750c3f008d6</span><span class="arrow">→<small>TCP</small></span>
+    <span class="chip c-core">CORE-42fa0e7f8832</span><span class="arrow">→<small>FTP</small></span>
+    <span class="chip c-mod">MOD-15e27260d88f</span>
   </div>
-  <p class="caption">Los IDs, los logs, los mensajes y los tiempos son de una transacción real por el canal de tercero (SOAP), en Docker local el 18-nov. Lo único ilustrativo es el número de cuenta, porque ninguna capa lo registra (minimización de datos).</p>
+  <p class="caption">Los IDs, los logs, los mensajes y los tiempos son de una transacción real por el canal de tercero (SOAP), en Docker local el 19-nov, con las tramas por TCP y las novedades por FTP. Lo único ilustrativo es el número de cuenta, porque ninguna capa lo registra (minimización de datos).</p>
 </header>
 
 <section>
   <div class="eyebrow">1 · El montaje</div>
-  <h2>Tres protocolos en el camino y cuatro tipos de telemetría</h2>
-  <p class="prose">El generador hace de los tres canales. Móvil y web envían REST/JSON; la API de tercero envía SOAP/XML. El gateway transforma todo a SOAP hacia el bus, como hace un appliance de integración. El bus le habla al core con una trama de ancho fijo, que es la interfaz típica de un core COBOL. El core avisa al servicio moderno por REST.</p>
+  <h2>Cuatro formas de transporte y cuatro tipos de telemetría</h2>
+  <p class="prose">El generador hace de los tres canales. Móvil y web envían REST/JSON; la API de tercero envía SOAP/XML. El gateway transforma todo a SOAP hacia el bus, como hace un appliance de integración. El bus le habla al core con una trama de ancho fijo por un <strong>socket TCP</strong>, que es la interfaz típica de un core COBOL. El core no llama al servicio moderno: deja las novedades en un <strong>archivo plano</strong>, lo sube por <strong>FTP</strong> cada pocos segundos y el moderno lo procesa en lote.</p>
   <div class="diagram">
 <pre class="mermaid">
 flowchart LR
@@ -164,8 +164,9 @@ flowchart LR
   MW -->|"REST/JSON<br/>ID en header X-Client-Id"| GW["Gateway<br/>GW-…"]
   PT -->|"SOAP/XML<br/>ID en Header/ClientRequestId"| GW
   GW -->|"SOAP/XML<br/>ID en wsa:MessageID"| BUS["Bus ESB<br/>BUS-…"]
-  BUS -->|"Trama 60 car.<br/>ID en posiciones 4–23"| CORE["Core COBOL<br/>CORE-…"]
-  CORE -->|"REST/JSON<br/>ID en header X-Upstream-Id"| MOD["Servicio moderno<br/>MOD-…"]
+  BUS -->|"Trama por socket TCP<br/>ID en posiciones 4–23"| CORE["Core COBOL<br/>CORE-…"]
+  CORE -->|"archivo plano<br/>cada 5 s"| FTP[("FTP<br/>/inbox")]
+  FTP -->|"lote<br/>ID en cada registro"| MOD["Servicio moderno<br/>MOD-…"]
   GW -. "access log clave=valor" .-> LG[("gateway.log")]
   BUS -. "texto con niveles INFO/DEBUG" .-> LB[("bus.log")]
   CORE -. "registro ancho fijo 81 car." .-> LC[("core.log")]
@@ -175,6 +176,10 @@ flowchart LR
 </pre>
   </div>
   <p class="caption">El correlacionador no recibe nada de las capas en línea. Solo lee sus archivos, montados en modo de solo lectura. Si se cae, las transacciones siguen funcionando.</p>
+  <div class="callout info">
+    <h3>El último tramo es asíncrono</h3>
+    <p>El cliente recibe su respuesta cuando el core contesta la trama, en unos 20 a 50 ms. El servicio moderno se entera después, cuando procesa el archivo del lote. Por eso la traza queda <strong>incompleta unos segundos</strong> y luego se completa sola. En la prueba local, con lotes cada 5 s y revisión del FTP cada 2 s, las trazas se completaron entre 2,2 y 3,0 s después de la respuesta (mediana 2,4 s). El máximo teórico es la suma de los dos intervalos, unos 7 s. En un banco los lotes suelen ser de minutos u horas.</p>
+  </div>
   <div class="callout info">
     <h3>Sobre el gateway tipo appliance</h3>
     <p>Un appliance como DataPower no ejecuta Python: sus transformaciones se escriben en XSLT o GatewayScript. Aquí el stand-in está en Python, pero lo que se simula es su comportamiento visible: recibe REST o SOAP, valida, transforma a SOAP y deja un access log de texto. El modelo de correlación solo depende de ese comportamiento, no de la tecnología con que esté hecho el gateway.</p>
@@ -186,13 +191,13 @@ flowchart LR
   <h2>Dónde va el ID en cada salto</h2>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Salto</th><th>Protocolo</th><th>Dónde viaja el ID de la capa anterior</th><th>Endpoint</th></tr></thead>
+      <thead><tr><th>Salto</th><th>Transporte</th><th>Dónde viaja el ID de la capa anterior</th><th>Destino</th></tr></thead>
       <tbody>
         <tr><td class="layer-name">Móvil / web → <span class="c-gw">Gateway</span></td><td>REST/JSON</td><td>Header HTTP <code>X-Client-Id</code></td><td class="mono">POST /v1/transactions</td></tr>
         <tr><td class="layer-name">Tercero → <span class="c-gw">Gateway</span></td><td>SOAP 1.1/XML</td><td><code>soapenv:Header/txn:ClientRequestId</code></td><td class="mono">POST /soap/v1/transactions</td></tr>
         <tr><td class="layer-name"><span class="c-gw">Gateway</span> → <span class="c-bus">Bus</span></td><td>SOAP 1.1/XML</td><td><code>soapenv:Header/wsa:MessageID</code> (WS-Addressing)</td><td class="mono">POST /ws/TransactionService</td></tr>
-        <tr><td class="layer-name"><span class="c-bus">Bus</span> → <span class="c-core">Core</span></td><td>Trama de ancho fijo</td><td>Posiciones 4 a 23 de la trama</td><td class="mono">POST /trama</td></tr>
-        <tr><td class="layer-name"><span class="c-core">Core</span> → <span class="c-mod">Moderno</span></td><td>REST/JSON</td><td>Header HTTP <code>X-Upstream-Id</code> (no hay <code>traceparent</code>)</td><td class="mono">POST /notify</td></tr>
+        <tr><td class="layer-name"><span class="c-bus">Bus</span> → <span class="c-core">Core</span></td><td>Trama de ancho fijo por <strong>socket TCP</strong>, precedida de su longitud en 4 dígitos</td><td>Posiciones 4 a 23 de la trama</td><td class="mono">core:9000</td></tr>
+        <tr><td class="layer-name"><span class="c-core">Core</span> → <span class="c-mod">Moderno</span></td><td><strong>Archivo plano por FTP</strong>, en lotes cada 5 s</td><td>Posiciones 2 a 21 de cada registro de detalle (no hay <code>traceparent</code>)</td><td class="mono">ftp: /inbox → /procesados</td></tr>
       </tbody>
     </table>
   </div>
@@ -203,7 +208,7 @@ flowchart LR
 <div class="logline">&lt;soapenv:Envelope xmlns:soapenv="…/soap/envelope/"
     xmlns:wsa="…/2005/08/addressing" xmlns:txn="urn:obsproto:txn:v1"&gt;
   &lt;soapenv:Header&gt;
-    &lt;wsa:MessageID&gt;<span class="hl">GW-7c22b329b483</span>&lt;/wsa:MessageID&gt;
+    &lt;wsa:MessageID&gt;<span class="hl">GW-f1a1a558edb9</span>&lt;/wsa:MessageID&gt;
   &lt;/soapenv:Header&gt;
   &lt;soapenv:Body&gt;
     &lt;txn:Transaction&gt;
@@ -217,32 +222,42 @@ flowchart LR
     </article>
     <article class="layer L-bus">
       <h3>Bus → Core <span class="tag">trama</span></h3>
-      <p class="caption" style="margin-top:-4px">Solicitud, 60 caracteres. No tiene nombres de campo: el significado sale de la posición, como en un copybook.</p>
+      <p class="caption" style="margin-top:-4px">Solicitud, 60 caracteres. Viaja por TCP precedida de su longitud (<code>0060</code>). No tiene nombres de campo: el significado sale de la posición, como en un copybook.</p>
       <div class="ruler-wrap">
         <div class="ruler" role="img" aria-label="Trama de solicitud dividida en cinco campos">
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">0200</span><span class="lbl">mti</span><span class="pos">0–3</span></div>
-          <div class="seg bus" style="--sb:var(--bus-soft)"><span class="txt">BUS-3c414414810d    </span><span class="lbl">bus_id</span><span class="pos">4–23 · 20</span></div>
+          <div class="seg bus" style="--sb:var(--bus-soft)"><span class="txt">BUS-9750c3f008d6    </span><span class="lbl">bus_id</span><span class="pos">4–23 · 20</span></div>
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">BAL </span><span class="lbl">txn</span><span class="pos">24–27</span></div>
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">482913377           </span><span class="lbl">account</span><span class="pos">28–47 · 20</span></div>
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">000000007356</span><span class="lbl">amount</span><span class="pos">48–59 · 12</span></div>
         </div>
       </div>
-      <p class="caption">Respuesta, 26 caracteres. El resultado va en <code>rc</code> (00 = OK, 91 = fallo), no en el código HTTP.</p>
+      <p class="caption">Respuesta, 38 caracteres, precedida de <code>0038</code>. El resultado va en <code>rc</code> (00 = OK, 91 = fallo). En este modo el tracenumber va en ceros (ver la sección 7).</p>
       <div class="ruler-wrap">
         <div class="ruler" role="img" aria-label="Trama de respuesta dividida en tres campos">
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">0210</span><span class="lbl">mti</span><span class="pos">0–3</span></div>
-          <div class="seg bus" style="--sb:var(--bus-soft)"><span class="txt">BUS-3c414414810d    </span><span class="lbl">bus_id (eco)</span><span class="pos">4–23</span></div>
+          <div class="seg bus" style="--sb:var(--bus-soft)"><span class="txt">BUS-9750c3f008d6    </span><span class="lbl">bus_id (eco)</span><span class="pos">4–23</span></div>
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">00</span><span class="lbl">rc</span><span class="pos">24–25</span></div>
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">000000000000</span><span class="lbl">tracenumber</span><span class="pos">26–37</span></div>
         </div>
       </div>
     </article>
+  </div>
+
+  <div class="fixed L-mod">
+    <h3 style="color:var(--mod)">Core → Moderno: el archivo plano que viaja por FTP</h3>
+    <p class="prose" style="font-size:0.92rem;color:var(--muted)">Cada 5 s el core junta las novedades de los movimientos exitosos en un archivo de ancho fijo (63 caracteres por línea). Lo sube por FTP a <code>/inbox</code> como <code>.tmp</code> y después lo renombra, para que nunca se lea a medias. El moderno revisa la carpeta cada 2 s, comprueba que la cola cuadre con el número de registros (si no cuadra, aparta el archivo como <code>.err</code>), emite un span por registro y lo mueve a <code>/procesados</code>.</p>
+<div class="logline">NOV_CORE01_20261119072101559.txt
+<span class="dim">00</span>20261119072101CORE01                                          <span class="dim">← cabecera: fecha-hora y nodo</span>
+<span class="dim">01</span><span class="hl" style="--c:var(--core)">CORE-42fa0e7f8832   </span>BAL 0000000073560020261119072059670       <span class="dim">← novedad: ID del core, txn, monto, estado, hora</span>
+<span class="dim">99</span>00000001                                                       <span class="dim">← cola: cantidad de novedades</span></div>
   </div>
 </section>
 
 <section>
   <div class="eyebrow">3 · La escalera</div>
   <h2>Paso a paso, con los IDs reales</h2>
-  <p class="prose">Cada capa escribe su línea de log cuando la capa siguiente le responde, así que los registros salen en orden inverso al recorrido. El bus es la excepción: escribe tres líneas. Una al recibir, otra (DEBUG) al crear su ID y la última al recibir la respuesta. El correlacionador no usa el orden ni las horas para unir; usa solo los IDs.</p>
+  <p class="prose">Cada capa escribe su línea de log cuando la capa siguiente le responde, así que los registros salen en orden inverso al recorrido. El bus escribe tres líneas: una al recibir, otra (DEBUG) al crear su ID y la última al recibir la respuesta. El servicio moderno va aparte: recibe la novedad por FTP segundos después de que el cliente ya tuvo su respuesta. El correlacionador no usa el orden ni las horas para unir; usa solo los IDs.</p>
   <div class="diagram">
 <pre class="mermaid">
 sequenceDiagram
@@ -251,23 +266,24 @@ sequenceDiagram
   participant GW as Gateway
   participant B as Bus ESB
   participant C as Core COBOL
+  participant F as FTP
   participant M as Servicio moderno
   participant X as Correlacionador
-  T->>GW: SOAP Submit<br/>ClientRequestId = CLI-58860194592d
-  Note over GW: valida API key, tasa y XML<br/>crea GW-7c22b329b483
-  GW->>B: SOAP · wsa:MessageID = GW-7c22b329b483
-  Note over B: INFO received upstream=GW-…<br/>crea BUS-3c414414810d<br/>DEBUG mapped msgId=BUS-… upstream=GW-…
-  B->>C: Trama 0200 · pos 4–23 = BUS-3c414414810d
-  Note over C: crea CORE-c0f0ac5c0476<br/>latencia 5–40 ms · fallo inyectable
-  C->>M: REST · X-Upstream-Id = CORE-c0f0ac5c0476
-  Note over M: crea MOD-2be516eecb9b<br/>abre una traza OTel nueva
-  M-->>C: 200 · exporta span (app.id, upstream.id)
-  C-->>B: Trama 0210 rc=00 · escribe registro de ancho fijo
+  T->>GW: SOAP Submit<br/>ClientRequestId = CLI-ea7de2e21cae
+  Note over GW: valida API key, tasa y XML<br/>crea GW-f1a1a558edb9
+  GW->>B: SOAP · wsa:MessageID = GW-f1a1a558edb9
+  Note over B: INFO received upstream=GW-…<br/>crea BUS-9750c3f008d6<br/>DEBUG mapped msgId=BUS-… upstream=GW-…
+  B->>C: socket TCP · 0060 + trama 0200 · pos 4–23 = BUS-9750c3f008d6
+  Note over C: crea CORE-42fa0e7f8832<br/>escribe su registro de ancho fijo<br/>guarda la novedad para el lote
+  C-->>B: 0038 + trama 0210 rc=00
   Note over B: INFO reply msgId=BUS-… rc=00
   B-->>GW: SOAP TransactionResponse OK
-  GW-->>T: SOAP OK · access log tid=GW-… in_id=CLI-…
+  GW-->>T: SOAP OK a los 22 ms · access log tid=GW-… in_id=CLI-…
+  C->>F: cada 5 s: NOV_CORE01_….txt (cabecera, novedades, cola)
+  M->>F: cada 2 s: revisa /inbox, descarga y mueve a /procesados
+  Note over M: span process NOVEDAD<br/>upstream.id = CORE-42fa0e7f8832 (a los 4,1 s)
   Note over X: lee las 4 fuentes y agrega cada par al grafo
-  T->>X: GET /trace/CLI-58860194592d
+  T->>X: GET /trace/CLI-ea7de2e21cae
   X-->>T: complete: true · 4 spans
 </pre>
   </div>
@@ -289,35 +305,36 @@ sequenceDiagram
     <article class="layer L-gw">
       <h3>Gateway <span class="tag">access log</span></h3>
       <dl class="kv"><dt>Par</dt><dd>in_id → tid</dd><dt>Parser</dt><dd>regex + clave=valor</dd></dl>
-<div class="logline">2026-11-18T14:42:28.676Z INFO  gateway
-  tid=<span class="hl">GW-7c22b329b483</span> in_id=<span class="hp" style="--pc:var(--cli)">CLI-58860194592d</span>
-  ch=partner proto=SOAP status=200 upstream=200 dur_ms=14</div>
+<div class="logline">2026-11-19T07:20:59.672Z INFO  gateway
+  tid=<span class="hl">GW-f1a1a558edb9</span> in_id=<span class="hp" style="--pc:var(--cli)">CLI-ea7de2e21cae</span>
+  ch=partner proto=SOAP status=200 upstream=200 dur_ms=22</div>
     </article>
     <article class="layer L-bus">
       <h3>Bus ESB <span class="tag">INFO / DEBUG</span></h3>
       <dl class="kv"><dt>Par</dt><dd>solo en la línea DEBUG</dd><dt>Parser</dt><dd>con estado: une mapped + reply</dd></dl>
-<div class="logline">14:42:28.661Z INFO  [ESB.TransactionRoute] thread=T30496
-  received SOAP Submit upstream=<span class="hp" style="--pc:var(--gw)">GW-7c22b329b483</span>
-14:42:28.661Z DEBUG [ESB.TransactionRoute] thread=T30496
-  mapped msgId=<span class="hl">BUS-3c414414810d</span> upstream=<span class="hp" style="--pc:var(--gw)">GW-7c22b329b483</span> out=CORE.TRAMA
-14:42:28.675Z INFO  [ESB.TransactionRoute] thread=T30496
-  reply msgId=<span class="hl">BUS-3c414414810d</span> rc=00 dur_ms=14</div>
+<div class="logline">07:20:59.652Z INFO  [ESB.TransactionRoute] thread=T71328
+  received SOAP Submit upstream=<span class="hp" style="--pc:var(--gw)">GW-f1a1a558edb9</span>
+07:20:59.652Z DEBUG [ESB.TransactionRoute] thread=T71328
+  mapped msgId=<span class="hl">BUS-9750c3f008d6</span> upstream=<span class="hp" style="--pc:var(--gw)">GW-f1a1a558edb9</span> out=CORE.TRAMA
+07:20:59.671Z INFO  [ESB.TransactionRoute] thread=T71328
+  reply msgId=<span class="hl">BUS-9750c3f008d6</span> rc=00 dur_ms=18</div>
     </article>
     <article class="layer L-core">
       <h3>Core COBOL <span class="tag">ancho fijo</span></h3>
       <dl class="kv"><dt>Par</dt><dd>posiciones 17–36 y 37–56</dd><dt>Parser</dt><dd>cortes por posición</dd></dl>
-<div class="logline">20261118144228675<span class="hl">CORE-c0f0ac5c0476   </span><span class="hp" style="--pc:var(--bus)">BUS-3c414414810d    </span>BAL 00000000735600000014</div>
+<div class="logline">20261119072059670<span class="hl">CORE-42fa0e7f8832   </span><span class="hp" style="--pc:var(--bus)">BUS-9750c3f008d6    </span>BAL 00000000735600000016</div>
     </article>
     <article class="layer L-mod">
       <h3>Servicio moderno <span class="tag">span OTel</span></h3>
       <dl class="kv"><dt>Par</dt><dd>atributos upstream.id → app.id</dd><dt>Parser</dt><dd>JSON del span</dd></dl>
 <div class="logline">{"resource":{"service.name":"modern-notifications"},
- "traceId":"ba6be01a7a24f5697e8a1c69d6791517",
- "spanId":"7613e9a877ac7f45","parentSpanId":"",
- "name":"POST /notify","kind":"SPAN_KIND_SERVER",
+ "traceId":"6ab3eb406a61fe4c900f77c6adf9ae98",
+ "spanId":"7788ce2a56d1700e","parentSpanId":"",
+ "name":"process NOVEDAD","kind":"SPAN_KIND_SERVER",
  "status":{"code":"STATUS_CODE_OK"},
- "attributes":{"app.id":"<span class="hl">MOD-2be516eecb9b</span>",
-   "upstream.id":"<span class="hp" style="--pc:var(--core)">CORE-c0f0ac5c0476</span>", …}}</div>
+ "attributes":{"app.id":"<span class="hl">MOD-15e27260d88f</span>",
+   "upstream.id":"<span class="hp" style="--pc:var(--core)">CORE-42fa0e7f8832</span>",
+   "file.name":"NOV_CORE01_20261119072101559.txt", …}}</div>
     </article>
   </div>
 
@@ -326,13 +343,13 @@ sequenceDiagram
     <p class="prose" style="font-size:0.92rem;color:var(--muted)">El layout está definido una sola vez, en <code>CORE_LAYOUT</code>. Si una línea no mide exactamente 81 caracteres o un ID no tiene el formato esperado, el parser la descarta y la cuenta en <code>malformedLines</code>.</p>
     <div class="ruler-wrap">
       <div class="ruler" role="img" aria-label="Registro de log del core dividido en siete campos">
-        <div class="seg" style="--sb:var(--code-bg)"><span class="txt">20261118144228675</span><span class="lbl">ts</span><span class="pos">0–16 · 17</span></div>
-        <div class="seg own" style="--sb:var(--core-soft)"><span class="txt">CORE-c0f0ac5c0476   </span><span class="lbl">core_id (propio)</span><span class="pos">17–36 · 20</span></div>
-        <div class="seg bus" style="--sb:var(--bus-soft)"><span class="txt">BUS-3c414414810d    </span><span class="lbl">parent_id (recibido)</span><span class="pos">37–56 · 20</span></div>
+        <div class="seg" style="--sb:var(--code-bg)"><span class="txt">20261119072059670</span><span class="lbl">ts</span><span class="pos">0–16 · 17</span></div>
+        <div class="seg own" style="--sb:var(--core-soft)"><span class="txt">CORE-42fa0e7f8832   </span><span class="lbl">core_id (propio)</span><span class="pos">17–36 · 20</span></div>
+        <div class="seg bus" style="--sb:var(--bus-soft)"><span class="txt">BUS-9750c3f008d6    </span><span class="lbl">parent_id (recibido)</span><span class="pos">37–56 · 20</span></div>
         <div class="seg" style="--sb:var(--code-bg)"><span class="txt">BAL </span><span class="lbl">txn</span><span class="pos">57–60</span></div>
         <div class="seg" style="--sb:var(--code-bg)"><span class="txt">000000007356</span><span class="lbl">amount</span><span class="pos">61–72 · 12</span></div>
         <div class="seg" style="--sb:var(--code-bg)"><span class="txt">00</span><span class="lbl">status</span><span class="pos">73–74</span></div>
-        <div class="seg" style="--sb:var(--code-bg)"><span class="txt">000014</span><span class="lbl">dur_ms</span><span class="pos">75–80</span></div>
+        <div class="seg" style="--sb:var(--code-bg)"><span class="txt">000016</span><span class="lbl">dur_ms</span><span class="pos">75–80</span></div>
       </div>
     </div>
   </div>
@@ -341,19 +358,19 @@ sequenceDiagram
 <section>
   <div class="eyebrow">5 · Lo que devuelve el correlacionador</div>
   <h2>La traza reconstruida</h2>
-  <p class="prose">Respuesta de <code>GET /trace/BUS-3c414414810d</code>. Se puede consultar con el ID de cualquier capa. El <code>traceId</code> canónico se calcula del ID raíz. En el span del servicio moderno se conserva su <code>otelTraceId</code>, así que el correlacionador también enlaza la traza OTel huérfana con el flujo completo.</p>
+  <p class="prose">Respuesta de <code>GET /trace/BUS-9750c3f008d6</code>. Se puede consultar con el ID de cualquier capa. El <code>traceId</code> canónico se calcula del ID raíz. En el span del servicio moderno se conserva su <code>otelTraceId</code>, así que el correlacionador también enlaza la traza OTel huérfana con el flujo completo.</p>
   <div class="waterfall">
-    <div class="wf-row L-gw"><span class="nm"><b>gateway</b> GW-7c22b329b483</span><div class="track"><div class="bar" style="left:6.7%;width:93.3%"></div></div><span class="ms">14 ms</span></div>
-    <div class="wf-row L-bus"><span class="nm"><b>bus</b> BUS-3c414414810d</span><div class="track"><div class="bar" style="left:0%;width:93.3%"></div></div><span class="ms">14 ms</span></div>
-    <div class="wf-row L-core"><span class="nm"><b>core</b> CORE-c0f0ac5c0476</span><div class="track"><div class="bar" style="left:0%;width:93.3%"></div></div><span class="ms">14 ms</span></div>
-    <div class="wf-row L-mod"><span class="nm"><b>modern</b> MOD-2be516eecb9b</span><div class="track"><div class="bar" style="left:93.3%;width:0%"></div></div><span class="ms">0 ms</span></div>
-    <div class="wf-axis"><span></span><div class="ticks"><span>0</span><span>5</span><span>10</span><span>15 ms</span></div><span></span></div>
+    <div class="wf-row L-gw"><span class="nm"><b>gateway</b> GW-f1a1a558edb9</span><div class="track"><div class="bar" style="left:0%;width:0.6%"></div></div><span class="ms">22 ms</span></div>
+    <div class="wf-row L-bus"><span class="nm"><b>bus</b> BUS-9750c3f008d6</span><div class="track"><div class="bar" style="left:0.1%;width:0.5%"></div></div><span class="ms">18 ms</span></div>
+    <div class="wf-row L-core"><span class="nm"><b>core</b> CORE-42fa0e7f8832</span><div class="track"><div class="bar" style="left:0.1%;width:0.4%"></div></div><span class="ms">16 ms</span></div>
+    <div class="wf-row L-mod"><span class="nm"><b>modern</b> MOD-15e27260d88f</span><div class="track"><div class="bar" style="left:99%;width:0%"></div></div><span class="ms">4,07 s</span></div>
+    <div class="wf-axis"><span></span><div class="ticks"><span>0</span><span>1 s</span><span>2 s</span><span>3 s</span><span>4,1 s</span></div><span></span></div>
   </div>
-<div class="json">{"traceId":"e77490eecd8593491a7e08e191cb029a","rootId":"CLI-58860194592d","complete":true,
+<div class="json">{"traceId":"148a13648a971ecc4e0e2487a05b5e20","rootId":"CLI-ea7de2e21cae","complete":true,
  "missingLayers":[],"spans":[ …gateway, bus, core…,
-  {"layer":"modern","id":"MOD-2be516eecb9b","parentId":"CORE-c0f0ac5c0476","status":"OK",
-   "otelTraceId":"ba6be01a7a24f5697e8a1c69d6791517"}]}</div>
-  <p class="caption">Los tiempos de inicio salen de la marca de tiempo de cada log, que tiene resolución de milisegundos. Por eso el gateway aparece empezando 1 ms después del bus. Para unir las capas no se usan las horas, solo los IDs.</p>
+  {"layer":"modern","id":"MOD-15e27260d88f","parentId":"CORE-42fa0e7f8832","status":"OK",
+   "startOffsetMs":4068,"otelTraceId":"6ab3eb406a61fe4c900f77c6adf9ae98"}]}</div>
+  <p class="caption">El tramo en línea (gateway, bus y core) toma 22 ms. El span del moderno aparece a los 4,07 s porque llegó en el lote del FTP. Para unir las capas no se usan las horas, solo los IDs.</p>
 </section>
 
 <section>
@@ -387,18 +404,18 @@ sequenceDiagram
   <p class="prose">En el banco, el core no recibe el ID del bus. Asigna a cada movimiento un <strong>consecutivo que nunca se repite</strong>, el <em>tracenumber</em>, y lo devuelve en la respuesta. El bus no tiene DEBUG en producción, y en INFO ese valor queda ofuscado. El log del core ya no dice de dónde vino el movimiento, así que el eslabón bus → core solo puede salir de la línea de respuesta del bus.</p>
 
   <div class="chain" aria-label="Cadena de una transacción real en modo tracenumber">
-    <span class="chip c-cli">CLI-b7c56bfaf3bb</span><span class="arrow">→<small>REST</small></span>
-    <span class="chip c-gw">GW-7688bffbbf48</span><span class="arrow">→<small>SOAP</small></span>
-    <span class="chip c-bus">BUS-daba3fb609ed</span><span class="arrow">→<small>TRAMA</small></span>
-    <span class="chip c-core">CORE-795071260648</span><span class="arrow">→<small>REST</small></span>
-    <span class="chip c-mod">MOD-68b56d2bf229</span>
+    <span class="chip c-cli">CLI-df1b6cbeb461</span><span class="arrow">→<small>REST</small></span>
+    <span class="chip c-gw">GW-666c2cff5620</span><span class="arrow">→<small>SOAP</small></span>
+    <span class="chip c-bus">BUS-e7e4de3f7193</span><span class="arrow">→<small>TCP</small></span>
+    <span class="chip c-core">CORE-795072918076</span><span class="arrow">→<small>FTP</small></span>
+    <span class="chip c-mod">MOD-3e57ce1ab60b</span>
   </div>
-  <p class="caption">Transacción real del 19-nov, en Docker local, con el core en modo tracenumber, el bus en INFO sin una sola línea DEBUG y el tracenumber tokenizado.</p>
+  <p class="caption">Transacción real del 19-nov, en Docker local, con tramas por TCP, novedades por FTP, el core en modo tracenumber, el bus en INFO sin una sola línea DEBUG y el tracenumber tokenizado.</p>
 
   <div class="grid2">
     <article class="layer L-bus">
       <h3>Bus → Core <span class="tag">trama sin ID</span></h3>
-      <p class="caption" style="margin-top:-4px">Solicitud, 60 caracteres. El campo del ID del bus va vacío.</p>
+      <p class="caption" style="margin-top:-4px">Solicitud, 60 caracteres, por TCP precedida de <code>0060</code>. El campo del ID del bus va vacío.</p>
       <div class="ruler-wrap">
         <div class="ruler" role="img" aria-label="Trama de solicitud con el campo del bus vacío">
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">0200</span><span class="lbl">mti</span><span class="pos">0–3</span></div>
@@ -411,13 +428,13 @@ sequenceDiagram
     </article>
     <article class="layer L-core">
       <h3>Core → Bus <span class="tag">trae el tracenumber</span></h3>
-      <p class="caption" style="margin-top:-4px">Respuesta, 38 caracteres. El core devuelve su consecutivo.</p>
+      <p class="caption" style="margin-top:-4px">Respuesta, 38 caracteres, precedida de <code>0038</code>. El core devuelve su consecutivo.</p>
       <div class="ruler-wrap">
         <div class="ruler" role="img" aria-label="Trama de respuesta con el tracenumber">
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">0210</span><span class="lbl">mti</span><span class="pos">0–3</span></div>
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">                    </span><span class="lbl">bus_id (vacío)</span><span class="pos">4–23</span></div>
           <div class="seg" style="--sb:var(--code-bg)"><span class="txt">00</span><span class="lbl">rc</span><span class="pos">24–25</span></div>
-          <div class="seg own" style="--sb:var(--core-soft)"><span class="txt">795071260648</span><span class="lbl">tracenumber</span><span class="pos">26–37</span></div>
+          <div class="seg own" style="--sb:var(--core-soft)"><span class="txt">795072918076</span><span class="lbl">tracenumber</span><span class="pos">26–37</span></div>
         </div>
       </div>
     </article>
@@ -426,29 +443,29 @@ sequenceDiagram
   <div class="grid2">
     <article class="layer L-bus">
       <h3>Bus <span class="tag">una línea INFO, sin DEBUG</span></h3>
-<div class="logline">2026-11-19T06:54:52.908Z INFO  [ESB.TransactionRoute] thread=T36352
-  reply msgId=<span class="hl">BUS-daba3fb609ed</span> upstream=<span class="hp" style="--pc:var(--gw)">GW-7688bffbbf48</span>
-  rc=00 trace=<span class="hp" style="--pc:var(--core)">tok_931d4cb5cf3ff8bc</span> dur_ms=9</div>
+<div class="logline">2026-11-19T07:22:32.083Z INFO  [ESB.TransactionRoute] thread=T31200
+  reply msgId=<span class="hl">BUS-e7e4de3f7193</span> upstream=<span class="hp" style="--pc:var(--gw)">GW-666c2cff5620</span>
+  rc=00 trace=<span class="hp" style="--pc:var(--core)">tok_b957b311931d7562</span> dur_ms=22</div>
       <p class="caption">El token es HMAC-SHA256 con una llave secreta que solo tienen el bus y el correlacionador. El número no aparece en el log del bus.</p>
     </article>
     <article class="layer L-core">
       <h3>Core <span class="tag">sin ID recibido</span></h3>
-<div class="logline">20261119065452908<span class="hl">CORE-795071260648   </span><span class="dim">(vacío)             </span>PAY 00000020710100000008</div>
+<div class="logline">20261119072232083<span class="hl">CORE-795072918076   </span><span class="dim">(vacío)             </span>PAY 00000020710100000021</div>
       <p class="caption">El campo del ID recibido (posiciones 37–56) queda en blanco: el core no sabe quién lo llamó.</p>
     </article>
   </div>
 
   <div class="fixed">
     <h3 style="color:var(--accent)">Cómo los une el correlacionador</h3>
-<div class="json">core.log   →  tracenumber 795071260648
-              HMAC(llave, "795071260648") = tok_931d4cb5cf3ff8bc
-bus.log    →  trace = tok_931d4cb5cf3ff8bc                ✓ iguales → eslabón BUS-daba3fb609ed → CORE-795071260648
+<div class="json">core.log   →  tracenumber 795072918076
+              HMAC(llave, "795072918076") = tok_b957b311931d7562
+bus.log    →  trace = tok_b957b311931d7562                ✓ iguales → eslabón BUS-e7e4de3f7193 → CORE-795072918076
 
-GET /trace/CLI-b7c56bfaf3bb → complete: true
-  gateway GW-7688bffbbf48 ← CLI-b7c56bfaf3bb
-  bus     BUS-daba3fb609ed ← GW-7688bffbbf48
-  core    CORE-795071260648 ← BUS-daba3fb609ed      (agregado por el correlacionador)
-  modern  MOD-68b56d2bf229 ← CORE-795071260648      (otelTraceId 6d5e9611…)
+GET /trace/CLI-df1b6cbeb461 → complete: true
+  gateway GW-666c2cff5620 ← CLI-df1b6cbeb461
+  bus     BUS-e7e4de3f7193 ← GW-666c2cff5620
+  core    CORE-795072918076 ← BUS-e7e4de3f7193      (agregado por el correlacionador)
+  modern  MOD-3e57ce1ab60b ← CORE-795072918076      (llegó por FTP a los 2,96 s · otelTraceId aaefccde…)
 
 /stats coreLink: 31 referencias · 31 unidas · 0 ambiguas · 0 sin pareja</div>
   </div>
@@ -458,11 +475,11 @@ GET /trace/CLI-b7c56bfaf3bb → complete: true
     <table>
       <thead><tr><th>Política del bus</th><th>Cómo queda</th><th>Cómo se une</th><th>Trazas completas</th><th>Uniones falsas</th></tr></thead>
       <tbody>
-        <tr><td><strong>En claro</strong></td><td class="mono">trace=795071260648</td><td>Igualdad</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
-        <tr><td><strong>Tokenizado</strong> (HMAC)</td><td class="mono">trace=tok_931d4cb5cf3ff8bc</td><td>El correlacionador calcula el mismo token</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
-        <tr><td><strong>Máscara</strong>, 4 dígitos</td><td class="mono">trace=********0648</td><td>Terminación + hora, solo con un único candidato</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
-        <tr><td><strong>Máscara</strong>, 3 dígitos</td><td class="mono">trace=*********648</td><td>Igual</td><td class="num">300/1500 · 20 % <span class="dim">(resto ambiguo)</span></td><td class="num">0</td></tr>
-        <tr><td><strong>Máscara</strong>, 2 dígitos</td><td class="mono">trace=**********48</td><td>Igual</td><td class="num"><span class="no">0/1500 · 0 %</span> <span class="dim">(todo ambiguo)</span></td><td class="num">0</td></tr>
+        <tr><td><strong>En claro</strong></td><td class="mono">trace=795072918076</td><td>Igualdad</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Tokenizado</strong> (HMAC)</td><td class="mono">trace=tok_b957b311931d7562</td><td>El correlacionador calcula el mismo token</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Máscara</strong>, 4 dígitos</td><td class="mono">trace=********8076</td><td>Terminación + hora, solo con un único candidato</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Máscara</strong>, 3 dígitos</td><td class="mono">trace=*********076</td><td>Igual</td><td class="num">300/1500 · 20 % <span class="dim">(resto ambiguo)</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Máscara</strong>, 2 dígitos</td><td class="mono">trace=**********76</td><td>Igual</td><td class="num"><span class="no">0/1500 · 0 %</span> <span class="dim">(todo ambiguo)</span></td><td class="num">0</td></tr>
         <tr><td><strong>No se registra</strong></td><td class="mono">—</td><td>No hay con qué unir</td><td class="num"><span class="no">0/1500 · 0 %</span></td><td class="num">0</td></tr>
       </tbody>
     </table>
@@ -512,6 +529,7 @@ GET /trace/CLI-b7c56bfaf3bb → complete: true
     <h3>Defecto encontrado y corregido</h3>
     <p>Al reiniciar el correlacionador con más historia que su memoria (437 000 eventos para un tope de 200 000), quedaban <strong>0 trazas completas</strong>. Los cuatro logs se releen a ritmos distintos y descartaba eventos por orden de llegada. Ahora descarta por la hora del evento. En AWS, con los mismos logs, pasó de <strong>0/1500 a 1500/1500</strong>.</p>
   </div>
+  <p class="caption"><strong>Versión medida:</strong> estas pruebas se hicieron el 18-nov con el transporte anterior (trama y aviso al moderno por HTTP, v0.3.x). El 19-nov se cambió a TCP y FTP. En local el rendimiento no cambió: 477 rps y p95 de 52 ms, con 600/600 trazas completas.</p>
   <p class="caption">Matices: a C=200 el 100 % de correlación es sobre las 10 166 transacciones que respondieron; las 1834 que fallaron en el cliente no se pueden verificar. El límite de tasa del gateway se subió durante las pruebas para no confundir los 429 con saturación.</p>
 </section>
 

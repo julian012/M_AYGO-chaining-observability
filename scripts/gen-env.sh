@@ -5,12 +5,14 @@ cd "$(dirname "$0")/.."
 
 if [[ -f .env ]]; then
   # Secretos agregados en versiones posteriores: se añaden si faltan, sin tocar los existentes.
-  if ! grep -q '^TRACE_TOKEN_KEY=' .env; then
-    echo "TRACE_TOKEN_KEY=$(openssl rand -hex 32)" >> .env
-    echo ".env existente: se agregó TRACE_TOKEN_KEY."
-  else
-    echo ".env ya existe; no se modifica."
-  fi
+  added=""
+  for k in TRACE_TOKEN_KEY FTP_PASSWORD; do
+    if ! grep -q "^$k=" .env; then
+      echo "$k=$(openssl rand -hex 24)" >> .env
+      added="$added $k"
+    fi
+  done
+  if [[ -n "$added" ]]; then echo ".env ya existe; se agregó:$added."; else echo ".env ya existe; no se modifica."; fi
   exit 0
 fi
 
@@ -21,6 +23,7 @@ cat > .env <<EOF
 INTERNAL_TOKEN=$(openssl rand -hex 24)
 CORRELATOR_TOKEN=$(openssl rand -hex 24)
 TRACE_TOKEN_KEY=$(openssl rand -hex 32)
+FTP_PASSWORD=$(openssl rand -hex 24)
 API_KEYS=mobile:$(openssl rand -hex 24),web:$(openssl rand -hex 24),partner:$(openssl rand -hex 24)
 GATEWAY_BIND=${GATEWAY_BIND:-127.0.0.1}
 FAULT_RATE=0.0

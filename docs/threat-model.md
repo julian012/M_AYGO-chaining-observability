@@ -30,6 +30,8 @@ disponibilidad del flujo, credenciales (API keys, tokens, llaves AWS del lab).
 | 22 | Trama manipulada (desbordar campos, ID de otra capa) | T | Longitud exacta, solo ASCII, MTI conocido, ID con prefijo `BUS-`, campos numéricos verificados; luego `validate_txn` | `wire.py`, `core.py` | `test_wire` |
 | 23 | Enlace inventado por correlación heurística | T | El parser del bus solo une por ID (línea DEBUG `mapped`); nunca por hilo ni por hora. Sin el par, la traza se reporta incompleta | `parsers.BusLogParser` | `test_parsers` |
 | 24 | Exposición del tracenumber del core en el log del bus | I | Política `BUS_TRACE_LOG=token`: HMAC-SHA256 con `TRACE_TOKEN_KEY` (secreto en `.env`, solo bus y correlacionador); la máscara se desaconseja porque con la hora identifica el movimiento | `tracelink.py`, `corelink.py` | `test_corelink`, `evidence/core-link-local-*` |
+| 25 | Conexión directa al core por TCP | S/T | Puerto solo en la red interna (sin publicar); validación estricta de longitud y trama; timeout de 10 s por conexión. Sin token por mensaje (como un core real): **riesgo residual** | `core.py`, `wire.py`, compose | `test_transport` |
+| 26 | Robo o alteración de archivos planos en el FTP | I/T | Usuario y contraseña (`FTP_PASSWORD`), solo dos carpetas, nombres en lista blanca (sin `..`), tamaño máximo, `.tmp` → `.txt` al terminar y cola con conteo (un archivo truncado o alterado en número de registros no se procesa). FTP en claro: **riesgo residual** | `ftpserver.py`, `core.py`, `modern.py` | `test_transport` |
 
 ## Riesgos residuales (aceptados y declarados)
 1. **Tráfico interno sin cifrar** (HTTP dentro de la red aislada de Docker). Mitigado con red interna + token; mejora: mTLS.
@@ -45,6 +47,8 @@ disponibilidad del flujo, credenciales (API keys, tokens, llaves AWS del lab).
 10. **Generador de carga (solo durante las pruebas):** segunda instancia con SSH desde una IP y salida al gateway únicamente por su grupo de seguridad. Recibe solo `API_KEYS` (no los tokens internos ni el del correlacionador), copiadas por SSH, nunca por `UserData`. Se elimina al terminar (`EnableLoadGenerator=false`).
 
 11. **Llave de tokenización (`TRACE_TOKEN_KEY`):** quien la tenga puede calcular el token de cualquier tracenumber candidato (el espacio de un consecutivo es predecible). Se custodia como secreto y no sale del bus ni del correlacionador. Mejora: rotación y almacenamiento en un gestor de secretos.
+
+12. **Transporte interno sin cifrar ni autenticar por mensaje:** las tramas TCP y el FTP viajan en claro dentro de la red interna de Docker, y el core no autentica cada trama (antes, con HTTP, exigía `X-Internal-Token`). Mejora: TLS mutuo en el socket del core y SFTP/FTPS para los archivos.
 
 Trivy AWS-0028 (IMDSv2) es un falso positivo: la plantilla exige tokens y `HopLimit: 1`. Las tres excepciones están en `.trivyignore` con su justificación.
 

@@ -6,10 +6,14 @@ el ID de la capa anterior viaja en un lugar distinto:
   canal móvil/web  -> gateway : REST/JSON      ID del cliente en el header ``X-Client-Id``
   canal de tercero -> gateway : SOAP 1.1/XML   ID del cliente en ``soapenv:Header/txn:ClientRequestId``
   gateway          -> bus     : SOAP 1.1/XML   ID del gateway en ``soapenv:Header/wsa:MessageID``
-  bus              -> core    : trama de ancho fijo (estilo copybook); ID del bus en las posiciones 4-23,
+  bus              -> core    : trama de ancho fijo (estilo copybook) por un SOCKET TCP, cada mensaje con una
+                                cabecera de 4 dígitos ASCII con su longitud (no es HTTP);
+                                ID del bus en las posiciones 4-23,
                                 o vacías con CORE_LINK=tracenumber: el core (tipo Stratus) no recibe el ID del bus,
                                 asigna su propio consecutivo (tracenumber) y lo devuelve en la respuesta
-  core             -> moderno : REST/JSON      ID del core en el header ``X-Upstream-Id``
+  core             -> moderno : ARCHIVO PLANO de novedades (ancho fijo) transferido por FTP en lotes;
+                                el ID del core (tracenumber) va en cada registro. El moderno lo procesa
+                                después: el tramo es asíncrono
 
 Seguridad del XML: el cuerpo es entrada no confiable. Se limita el tamaño, se rechaza cualquier
 ``<!DOCTYPE`` o ``<!ENTITY`` (evita XXE y expansión de entidades) y se exige la estructura exacta.
@@ -18,6 +22,7 @@ Seguridad del XML: el cuerpo es entrada no confiable. Se limita el tamaño, se r
 from __future__ import annotations
 
 import re
+import socket
 import xml.etree.ElementTree as ET  # noqa: S405 - se rechazan DTD/entidades antes de parsear
 from typing import Dict, Optional, Tuple
 
@@ -192,3 +197,108 @@ def parse_trama_response(raw: bytes) -> Optional[Tuple[str, Optional[str]]]:
     if f["mti"] != "0210" or not f["rc"].isdigit() or not f["tracenumber"].isdigit():
         return None
     return f["rc"], (f["tracenumber"] if int(f["tracenumber"]) else None)
+
+
+# --------------------------------------------------------------------------- #
+# Transporte de tramas por TCP: cabecera de 4 dígitos ASCII con la longitud del mensaje
+# --------------------------------------------------------------------------- #
+TCP_HEADER = 4
+MAX_FRAME = 1024
+
+
+def tcp_frame(payload: bytes) -> bytes:
+    if len(payload) > MAX_FRAME:
+        raise ValueError("trama demasiado larga")
+    return f"{len(payload):04d}".encode("ascii") + payload
+
+
+def _recv_exact(sock: socket.socket, n: int) -> bytes:
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError("conexión cerrada a mitad de la trama")
+        buf += chunk
+    return buf
+
+
+def tcp_read_frame(sock: socket.socket) -> Optional[bytes]:
+    """Lee un mensaje. None si el otro lado cerró limpio antes de empezar uno nuevo."""
+    first = sock.recv(1)
+    if not first:
+        return None
+    head = first + _recv_exact(sock, TCP_HEADER - 1)
+    if not head.isdigit() or not 0 < int(head) <= MAX_FRAME:
+        raise ValueError("cabecera de longitud inválida")
+    return _recv_exact(sock, int(head))
+
+
+def tcp_exchange(host: str, port: int, payload: bytes, timeout: float = 3.0) -> Optional[bytes]:
+    """Envía una trama y espera la respuesta. None si el core no responde (caída o timeout)."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.sendall(tcp_frame(payload))
+            return tcp_read_frame(sock)
+    except (OSError, ValueError):
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# Archivo plano de novedades core -> moderno (ancho fijo, 63 caracteres por registro)
+#   00 cabecera: fecha-hora de generación y nodo
+#   01 detalle:  ID del core (tracenumber), transacción, monto, estado, hora del movimiento
+#   99 cola:     cantidad de registros de detalle (control de integridad de la transferencia)
+# --------------------------------------------------------------------------- #
+NOVEDAD_LEN = 63
+NOVEDAD_DETAIL = (
+    ("tipo", 2),  # 01
+    ("core_id", 20),  # CORE-<…> alineado a la izquierda
+    ("txn", 4),
+    ("amount", 12),
+    ("status", 2),
+    ("ts", 17),  # YYYYMMDDHHMMSSmmm del movimiento en el core
+    ("filler", 6),
+)
+
+
+def novedad_header(stamp: str, node: str) -> str:
+    return ("00" + stamp[:14] + node.ljust(8)[:8]).ljust(NOVEDAD_LEN)
+
+
+def novedad_detail(core_id: str, txn: str, amount_cents: int, status: str, ts: str) -> str:
+    rec = "01" + core_id.ljust(20) + txn.ljust(4)[:4] + f"{amount_cents:012d}"[-12:] + status[:2] + ts[:17]
+    return rec.ljust(NOVEDAD_LEN)
+
+
+def novedad_trailer(count: int) -> str:
+    return ("99" + f"{count:08d}").ljust(NOVEDAD_LEN)
+
+
+def parse_novedades(text: str) -> Optional[list]:
+    """Valida cabecera, detalle y cola. Devuelve la lista de detalles (dict) o None si el archivo no es íntegro."""
+    lines = [ln for ln in text.splitlines() if ln]
+    if len(lines) < 2 or any(len(ln) != NOVEDAD_LEN or not ln.isascii() for ln in lines):
+        return None
+    if not (lines[0].startswith("00") and lines[-1].startswith("99")):
+        return None
+    details = []
+    for ln in lines[1:-1]:
+        if not ln.startswith("01"):
+            return None
+        f = _cut(ln, NOVEDAD_DETAIL)
+        core_id = f["core_id"].strip()
+        if not valid_id(core_id, "CORE") or not f["amount"].isdigit() or not f["ts"].isdigit():
+            return None
+        details.append(
+            {
+                "core_id": core_id,
+                "txn": f["txn"].strip(),
+                "amount": int(f["amount"]),
+                "status": f["status"],
+                "ts": f["ts"],
+            }
+        )
+    count = lines[-1][2:10]
+    if not count.isdigit() or int(count) != len(details):
+        return None  # transferencia incompleta: no se procesa
+    return details

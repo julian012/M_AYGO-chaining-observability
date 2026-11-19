@@ -27,8 +27,9 @@ flowchart LR
   MW -->|"REST/JSON<br/>ID en header X-Client-Id"| GW["Gateway<br/>GW-…"]
   PT -->|"SOAP/XML<br/>ID en Header/ClientRequestId"| GW
   GW -->|"SOAP/XML<br/>ID en wsa:MessageID"| BUS["Bus ESB<br/>BUS-…"]
-  BUS -->|"Trama 60 car.<br/>ID en posiciones 4–23"| CORE["Core COBOL<br/>CORE-…"]
-  CORE -->|"REST/JSON<br/>ID en header X-Upstream-Id"| MOD["Servicio moderno<br/>MOD-…"]
+  BUS -->|"Trama por socket TCP<br/>ID en posiciones 4–23"| CORE["Core COBOL<br/>CORE-…"]
+  CORE -->|"archivo plano<br/>cada 5 s"| FTP[("FTP<br/>/inbox")]
+  FTP -->|"lote<br/>ID en cada registro"| MOD["Servicio moderno<br/>MOD-…"]
   GW -. "access log clave=valor" .-> LG[("gateway.log")]
   BUS -. "texto con niveles INFO/DEBUG" .-> LB[("bus.log")]
   CORE -. "registro ancho fijo 81 car." .-> LC[("core.log")]
@@ -51,8 +52,8 @@ Al terminar le pide al correlacionador la traza de cada `CLI-` y cuenta cuántas
 | Móvil / web → Gateway | REST/JSON | Header `X-Client-Id` | `POST /v1/transactions` |
 | Tercero → Gateway | SOAP 1.1/XML | `soapenv:Header/txn:ClientRequestId` | `POST /soap/v1/transactions` |
 | Gateway → Bus | SOAP 1.1/XML | `soapenv:Header/wsa:MessageID` (WS-Addressing) | `POST /ws/TransactionService` |
-| Bus → Core | Trama de ancho fijo | Posiciones 4–23 de la trama | `POST /trama` |
-| Core → Moderno | REST/JSON | Header `X-Upstream-Id` (no hay `traceparent`) | `POST /notify` |
+| Bus → Core | Trama de ancho fijo por **socket TCP**, precedida de su longitud en 4 dígitos | Posiciones 4–23 de la trama | `core:9000` |
+| Core → Moderno | **Archivo plano por FTP**, en lotes cada 5 s (asíncrono) | Posiciones 2–21 de cada registro de detalle (no hay `traceparent`) | `ftp: /inbox → /procesados` |
 
 **Gateway → Bus (SOAP).** El bus rechaza cualquier `<!DOCTYPE` o `<!ENTITY` antes de parsear (XXE) y exige los tres campos exactos.
 
@@ -81,10 +82,26 @@ Respuesta (26):  0210BUS-3c414414810d    00
                  mti └──────bus_id──────┘rc  (00 = OK, 91 = fallo; el resultado no va en el código HTTP)
 ```
 
+### Core → Moderno: archivo plano por FTP (asíncrono)
+Cada 5 s el core junta las novedades de los movimientos exitosos en un archivo de ancho fijo de 63 caracteres por línea. Lo sube
+por FTP a `/inbox` como `.tmp` y luego lo renombra, para que nunca se lea a medias. El moderno revisa la carpeta cada 2 s,
+comprueba que la cola cuadre con el número de registros (si no cuadra, aparta el archivo como `.err`), emite un span por
+registro y lo mueve a `/procesados`.
+
+```
+NOV_CORE01_20261119072101559.txt
+0020261119072101CORE01                                           ← cabecera: fecha-hora y nodo
+01CORE-42fa0e7f8832   BAL 0000000073560020261119072059670        ← novedad: ID del core, txn, monto, estado, hora
+9900000001                                                       ← cola: cantidad de novedades
+```
+El cliente recibe su respuesta cuando el core contesta la trama, y el moderno se entera después. **La traza queda incompleta unos
+segundos y luego se completa sola.** En local: entre 2,2 y 3,0 s después de la respuesta (mediana 2,4 s). El máximo teórico es
+el intervalo del lote más el de revisión, unos 7 s. En un banco los lotes suelen ser de minutos u horas.
+
 ## 3. La escalera
 
-Cada capa escribe su línea de log cuando la siguiente le responde, así que los registros salen en orden inverso al
-recorrido. El bus escribe tres líneas: al recibir, al crear su ID (DEBUG) y al recibir la respuesta.
+Cada capa en línea escribe su log cuando la siguiente le responde, así que los registros salen en orden inverso al
+recorrido; el moderno llega después, con el lote FTP. El bus escribe tres líneas: al recibir, al crear su ID (DEBUG) y al recibir la respuesta.
 **El correlacionador no usa el orden ni las horas para unir; usa solo los IDs.**
 
 ```mermaid
@@ -94,21 +111,22 @@ sequenceDiagram
   participant GW as Gateway
   participant B as Bus ESB
   participant C as Core COBOL
+  participant F as FTP
   participant M as Servicio moderno
   participant X as Correlacionador
   T->>GW: SOAP Submit<br/>ClientRequestId = CLI-58860194592d
   Note over GW: valida API key, tasa y XML<br/>crea GW-7c22b329b483
   GW->>B: SOAP · wsa:MessageID = GW-7c22b329b483
   Note over B: INFO received upstream=GW-…<br/>crea BUS-3c414414810d<br/>DEBUG mapped msgId=BUS-… upstream=GW-…
-  B->>C: Trama 0200 · pos 4–23 = BUS-3c414414810d
-  Note over C: crea CORE-c0f0ac5c0476<br/>latencia 5–40 ms · fallo inyectable
-  C->>M: REST · X-Upstream-Id = CORE-c0f0ac5c0476
-  Note over M: crea MOD-2be516eecb9b<br/>abre una traza OTel nueva
-  M-->>C: 200 · exporta span (app.id, upstream.id)
-  C-->>B: Trama 0210 rc=00 · escribe registro de ancho fijo
+  B->>C: socket TCP · 0060 + trama 0200 · pos 4–23 = BUS-3c414414810d
+  Note over C: crea CORE-c0f0ac5c0476<br/>escribe su registro de ancho fijo<br/>guarda la novedad para el lote
+  C-->>B: 0038 + trama 0210 rc=00
   Note over B: INFO reply msgId=BUS-… rc=00
   B-->>GW: SOAP TransactionResponse OK
   GW-->>T: SOAP OK · access log tid=GW-… in_id=CLI-…
+  C->>F: cada 5 s: NOV_CORE01_….txt (cabecera, novedades, cola)
+  M->>F: cada 2 s: revisa /inbox, descarga y mueve a /procesados
+  Note over M: span "process NOVEDAD"<br/>upstream.id = CORE-c0f0ac5c0476 (segundos después)
   Note over X: lee las 4 fuentes y agrega cada par al grafo
   T->>X: GET /trace/CLI-58860194592d
   X-->>T: complete: true · 4 spans
@@ -139,7 +157,7 @@ De la fuente con más contexto de traza a la que no tiene ninguno:
 └──────ts───────┘└─────core_id──────┘└────parent_id─────┘txn └──amount──┘st└dur─┘
 
 # Servicio moderno (span OTel, una línea)
-{"resource":{"service.name":"modern-notifications"},"traceId":"ba6be01a7a24f5697e8a1c69d6791517","spanId":"7613e9a877ac7f45","parentSpanId":"","name":"POST /notify","kind":"SPAN_KIND_SERVER","startTimeUnixNano":1795012948675771041,"endTimeUnixNano":1795012948675825208,"status":{"code":"STATUS_CODE_OK"},"attributes":{"app.id":"MOD-2be516eecb9b","upstream.id":"CORE-c0f0ac5c0476","http.request.method":"POST","http.response.status_code":200}}
+{"resource":{"service.name":"modern-notifications"},"traceId":"ba6be01a7a24f5697e8a1c69d6791517","spanId":"7613e9a877ac7f45","parentSpanId":"","name":"process NOVEDAD","kind":"SPAN_KIND_SERVER","startTimeUnixNano":1795012948675771041,"endTimeUnixNano":1795012948675825208,"status":{"code":"STATUS_CODE_OK"},"attributes":{"app.id":"MOD-2be516eecb9b","upstream.id":"CORE-c0f0ac5c0476","http.request.method":"POST","http.response.status_code":200}}
 ```
 
 ## 5. La traza reconstruida

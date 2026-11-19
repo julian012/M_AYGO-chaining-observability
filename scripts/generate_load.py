@@ -265,7 +265,12 @@ def main() -> None:
     ap.add_argument("--concurrency", type=int, default=10)
     ap.add_argument("--timeout", type=float, default=10.0)
     ap.add_argument("--correlator", default="", help="URL del correlacionador para verificar trazas")
-    ap.add_argument("--settle", type=float, default=3.0, help="segundos de espera antes de consultar trazas")
+    ap.add_argument(
+        "--settle",
+        type=float,
+        default=12.0,
+        help="espera antes de consultar trazas: el tramo core -> moderno llega por lotes FTP (5 s + 2 s)",
+    )
     ap.add_argument("--verify-last", type=int, default=0, help="verificar solo las N transacciones más recientes")
     ap.add_argument("--rest-only", action="store_true", help="todos los canales por REST (línea base sin SOAP)")
     ap.add_argument("--cw-scenario", default="", help="publica la serie en CloudWatch con este nombre de escenario")

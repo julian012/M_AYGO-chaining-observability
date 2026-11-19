@@ -48,6 +48,13 @@
 - [x] Experimento local (`scripts/core_link_experiment.py`): claro/token/mask4 100 %, mask3 20 %, mask2 0 %, none 0 %; 0 falsas
 - [ ] (Opcional) repetir en AWS
 
+## Transporte realista (19-nov, ADR-0007)
+- [x] Bus → core: tramas por socket TCP con cabecera de longitud (ya no `POST /trama`)
+- [x] Core → moderno: archivo plano de novedades (cabecera, detalle, cola) por FTP en lotes; el moderno lo procesa de forma asíncrona
+- [x] FTP stand-in (stdlib) con usuario, dos carpetas, nombres en lista blanca; pruebas con `ftplib` real (incl. salida de carpetas)
+- [x] Local: 600/600 completas, 477 rps, p95 52 ms; traza completa 2,2–3,0 s después de la respuesta
+- [ ] (Opcional) repetir pruebas de estrés en AWS con este transporte
+
 ## Siguiente
 - [x] En AWS: 5 contenedores `healthy`, `ReadonlyRootfs=true`, usuario 10001 (18-nov)
 - [x] Repo publicado en https://github.com/julian012/M_AYGO-chaining-observability, CI en verde (5 jobs) y tag `v0.1.0` (18-nov)

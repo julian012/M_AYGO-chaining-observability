@@ -8,9 +8,9 @@ de punta a punta** cuando cada capa (gateway, bus de integración, core legacy, 
 
 ## Cómo funciona (30 segundos)
 ```
-Canal ──REST/SOAP──▶ Gateway ──SOAP──▶ Bus ──trama──▶ Core legacy ──REST──▶ Servicio moderno
- CLI-…                GW-…             BUS-…          CORE-…                 MOD-…
-                   access log        texto INFO/DEBUG  registro ancho fijo    spans OTel
+Canal ──REST/SOAP──▶ Gateway ──SOAP──▶ Bus ──trama TCP──▶ Core legacy ──archivo plano/FTP──▶ Servicio moderno
+ CLI-…                GW-…             BUS-…              CORE-…            (lotes, asíncrono)       MOD-…
+                   access log        texto INFO/DEBUG      registro ancho fijo                         spans OTel
                       └──────── cada capa registra  ID recibido → ID propio ────────┘
                                        │
               Correlacionador: lee las 4 fuentes (solo lectura), arma el grafo de IDs
@@ -18,7 +18,7 @@ Canal ──REST/SOAP──▶ Gateway ──SOAP──▶ Bus ──trama──
 ```
 **Explicación visual paso a paso:** [`docs/flujo-y-telemetria.md`](docs/flujo-y-telemetria.md)
 (versión HTML: [`docs/visual/flujo-trazabilidad.html`](docs/visual/flujo-trazabilidad.html)).
-Detalle en [`docs/architecture.md`](docs/architecture.md), [`ADR-0001`](docs/adr/0001-id-chaining.md) y [`ADR-0005`](docs/adr/0005-heterogeneous-sources.md).
+Detalle en [`docs/architecture.md`](docs/architecture.md), [`ADR-0001`](docs/adr/0001-id-chaining.md), [`ADR-0005`](docs/adr/0005-heterogeneous-sources.md) y [`ADR-0007`](docs/adr/0007-tcp-and-ftp-transport.md) (transporte TCP y FTP).
 
 ## Requisitos
 Docker + Compose v2, `openssl`, Python 3.9+ (solo para el generador de carga y las pruebas).
@@ -39,7 +39,7 @@ Core tipo Stratus que no recibe el ID del bus (tracenumber) y cómo queda en el 
 ## Pruebas y calidad
 ```bash
 pip install -e ".[dev]"
-make test      # 106 pruebas: parsers de las 4 fuentes, SOAP/tramas (incl. XXE), grafo de IDs, unión por tracenumber, validación
+make test      # 120 pruebas: parsers de las 4 fuentes, SOAP/tramas (incl. XXE), grafo de IDs, unión por tracenumber, validación
 make lint      # ruff + cfn-lint
 ```
 CI (GitHub Actions): lint, pruebas (Python 3.9 y 3.12), cfn-lint, gitleaks, pip-audit, Trivy (IaC e imagen), hadolint.
