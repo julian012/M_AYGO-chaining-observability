@@ -135,7 +135,7 @@ ul, ol { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; 
 <div class="wrap">
 
 <header style="display:flex;flex-direction:column;gap:16px">
-  <div class="eyebrow">Proyecto 02 · Prototipo de observabilidad · actualizado el 18-nov-2026</div>
+  <div class="eyebrow">Proyecto 02 · Prototipo de observabilidad · actualizado el 19-nov-2026</div>
   <h1>Escalera de IDs: cómo viaja una transacción y qué deja cada capa</h1>
   <p class="lead">Cada capa habla un protocolo distinto, genera su propio identificador y deja telemetría en un formato distinto. El ID nunca se propaga completo: cada capa solo le entrega el suyo a la siguiente. El correlacionador lee las cuatro fuentes y reconstruye la cadena uniendo los pares <em>ID recibido → ID propio</em>.</p>
   <div class="chain" aria-label="Cadena de identificadores de una transacción real">
@@ -382,34 +382,137 @@ sequenceDiagram
 </section>
 
 <section>
-  <div class="eyebrow">7 · Las pruebas de carga</div>
-  <h2>Escenarios y qué mide cada uno</h2>
+  <div class="eyebrow">7 · El core no recibe el ID del bus (caso Stratus)</div>
+  <h2>Cuando el eslabón solo puede quedar en el log del bus</h2>
+  <p class="prose">En el banco, el core no recibe el ID del bus. Asigna a cada movimiento un <strong>consecutivo que nunca se repite</strong>, el <em>tracenumber</em>, y lo devuelve en la respuesta. El bus no tiene DEBUG en producción, y en INFO ese valor queda ofuscado. El log del core ya no dice de dónde vino el movimiento, así que el eslabón bus → core solo puede salir de la línea de respuesta del bus.</p>
+
+  <div class="chain" aria-label="Cadena de una transacción real en modo tracenumber">
+    <span class="chip c-cli">CLI-b7c56bfaf3bb</span><span class="arrow">→<small>REST</small></span>
+    <span class="chip c-gw">GW-7688bffbbf48</span><span class="arrow">→<small>SOAP</small></span>
+    <span class="chip c-bus">BUS-daba3fb609ed</span><span class="arrow">→<small>TRAMA</small></span>
+    <span class="chip c-core">CORE-795071260648</span><span class="arrow">→<small>REST</small></span>
+    <span class="chip c-mod">MOD-68b56d2bf229</span>
+  </div>
+  <p class="caption">Transacción real del 19-nov, en Docker local, con el core en modo tracenumber, el bus en INFO sin una sola línea DEBUG y el tracenumber tokenizado.</p>
+
+  <div class="grid2">
+    <article class="layer L-bus">
+      <h3>Bus → Core <span class="tag">trama sin ID</span></h3>
+      <p class="caption" style="margin-top:-4px">Solicitud, 60 caracteres. El campo del ID del bus va vacío.</p>
+      <div class="ruler-wrap">
+        <div class="ruler" role="img" aria-label="Trama de solicitud con el campo del bus vacío">
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">0200</span><span class="lbl">mti</span><span class="pos">0–3</span></div>
+          <div class="seg" style="--sb:var(--warn-soft)"><span class="txt">                    </span><span class="lbl">bus_id (vacío)</span><span class="pos">4–23</span></div>
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">PAY </span><span class="lbl">txn</span><span class="pos">24–27</span></div>
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">261973069           </span><span class="lbl">account</span><span class="pos">28–47</span></div>
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">000000207101</span><span class="lbl">amount</span><span class="pos">48–59</span></div>
+        </div>
+      </div>
+    </article>
+    <article class="layer L-core">
+      <h3>Core → Bus <span class="tag">trae el tracenumber</span></h3>
+      <p class="caption" style="margin-top:-4px">Respuesta, 38 caracteres. El core devuelve su consecutivo.</p>
+      <div class="ruler-wrap">
+        <div class="ruler" role="img" aria-label="Trama de respuesta con el tracenumber">
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">0210</span><span class="lbl">mti</span><span class="pos">0–3</span></div>
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">                    </span><span class="lbl">bus_id (vacío)</span><span class="pos">4–23</span></div>
+          <div class="seg" style="--sb:var(--code-bg)"><span class="txt">00</span><span class="lbl">rc</span><span class="pos">24–25</span></div>
+          <div class="seg own" style="--sb:var(--core-soft)"><span class="txt">795071260648</span><span class="lbl">tracenumber</span><span class="pos">26–37</span></div>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <div class="grid2">
+    <article class="layer L-bus">
+      <h3>Bus <span class="tag">una línea INFO, sin DEBUG</span></h3>
+<div class="logline">2026-11-19T06:54:52.908Z INFO  [ESB.TransactionRoute] thread=T36352
+  reply msgId=<span class="hl">BUS-daba3fb609ed</span> upstream=<span class="hp" style="--pc:var(--gw)">GW-7688bffbbf48</span>
+  rc=00 trace=<span class="hp" style="--pc:var(--core)">tok_931d4cb5cf3ff8bc</span> dur_ms=9</div>
+      <p class="caption">El token es HMAC-SHA256 con una llave secreta que solo tienen el bus y el correlacionador. El número no aparece en el log del bus.</p>
+    </article>
+    <article class="layer L-core">
+      <h3>Core <span class="tag">sin ID recibido</span></h3>
+<div class="logline">20261119065452908<span class="hl">CORE-795071260648   </span><span class="dim">(vacío)             </span>PAY 00000020710100000008</div>
+      <p class="caption">El campo del ID recibido (posiciones 37–56) queda en blanco: el core no sabe quién lo llamó.</p>
+    </article>
+  </div>
+
+  <div class="fixed">
+    <h3 style="color:var(--accent)">Cómo los une el correlacionador</h3>
+<div class="json">core.log   →  tracenumber 795071260648
+              HMAC(llave, "795071260648") = tok_931d4cb5cf3ff8bc
+bus.log    →  trace = tok_931d4cb5cf3ff8bc                ✓ iguales → eslabón BUS-daba3fb609ed → CORE-795071260648
+
+GET /trace/CLI-b7c56bfaf3bb → complete: true
+  gateway GW-7688bffbbf48 ← CLI-b7c56bfaf3bb
+  bus     BUS-daba3fb609ed ← GW-7688bffbbf48
+  core    CORE-795071260648 ← BUS-daba3fb609ed      (agregado por el correlacionador)
+  modern  MOD-68b56d2bf229 ← CORE-795071260648      (otelTraceId 6d5e9611…)
+
+/stats coreLink: 31 referencias · 31 unidas · 0 ambiguas · 0 sin pareja</div>
+  </div>
+
+  <h3>Qué pasa con cada forma de dejar el tracenumber en el log del bus</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Escenario</th><th>Qué se cambia</th><th>Qué se espera</th><th>Métrica</th></tr></thead>
+      <thead><tr><th>Política del bus</th><th>Cómo queda</th><th>Cómo se une</th><th>Trazas completas</th><th>Uniones falsas</th></tr></thead>
       <tbody>
-        <tr><td><strong>Calentamiento</strong></td><td>Una corrida corta antes de medir. No se reporta</td><td>Evitar el arranque en frío</td><td>—</td></tr>
-        <tr><td><strong>Normal</strong></td><td>500 transacciones, C=20, 3 repeticiones</td><td>100 % de trazas completas</td><td>rps, p50/p95/p99, % completas</td></tr>
-        <tr><td><strong>REST frente a SOAP</strong></td><td>Misma carga, con y sin <code>--rest-only</code></td><td>Costo del XML en la latencia</td><td>p50/p95 de cada protocolo (<code>byProtocol</code>)</td></tr>
-        <tr><td><strong>Escalones</strong></td><td>C = 10 → 20 → 50 → 100 → 200</td><td>Punto donde suben la latencia y los errores</td><td>rps máximo, errores, CPU</td></tr>
-        <tr><td><strong>Sostenida</strong></td><td>10 min a ~70 % del máximo</td><td>Memoria del correlacionador estable</td><td>RSS, % completas en el tiempo</td></tr>
-        <tr><td><strong>Nivel de log del bus</strong></td><td><code>BUS_LOG_LEVEL</code> = DEBUG o INFO</td><td>Ruptura de la cadena en INFO</td><td>% completas, <code>busUnlinkedReplies</code></td></tr>
-        <tr><td><strong>Fallos del core</strong></td><td><code>FAULT_RATE=0.1</code></td><td>Trama con rc=91, el cliente recibe un error y la traza sigue completa sin <code>MOD-</code></td><td>% completas, errores = fallos inyectados</td></tr>
-        <tr><td><strong>Caída del bus</strong></td><td><code>docker stop bus</code> a mitad de la corrida</td><td>Trazas incompletas reportadas, sin enlaces inventados</td><td>Incompletas detectadas, tiempo de recuperación</td></tr>
-        <tr><td><strong>Overhead</strong></td><td>Misma carga con y sin correlacionador</td><td>Diferencia pequeña, porque está fuera del camino</td><td>Δ latencia, Δ CPU</td></tr>
-        <tr><td><strong>Manual frente a modelo</strong></td><td>Localizar 10 transacciones con <code>grep</code> en los 4 logs, frente a <code>/trace</code></td><td>Mucho menos tiempo con el modelo</td><td>Segundos por transacción</td></tr>
+        <tr><td><strong>En claro</strong></td><td class="mono">trace=795071260648</td><td>Igualdad</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Tokenizado</strong> (HMAC)</td><td class="mono">trace=tok_931d4cb5cf3ff8bc</td><td>El correlacionador calcula el mismo token</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Máscara</strong>, 4 dígitos</td><td class="mono">trace=********0648</td><td>Terminación + hora, solo con un único candidato</td><td class="num"><span class="yes">1500/1500 · 100 %</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Máscara</strong>, 3 dígitos</td><td class="mono">trace=*********648</td><td>Igual</td><td class="num">300/1500 · 20 % <span class="dim">(resto ambiguo)</span></td><td class="num">0</td></tr>
+        <tr><td><strong>Máscara</strong>, 2 dígitos</td><td class="mono">trace=**********48</td><td>Igual</td><td class="num"><span class="no">0/1500 · 0 %</span> <span class="dim">(todo ambiguo)</span></td><td class="num">0</td></tr>
+        <tr><td><strong>No se registra</strong></td><td class="mono">—</td><td>No hay con qué unir</td><td class="num"><span class="no">0/1500 · 0 %</span></td><td class="num">0</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="caption">Docker local, 1500 transacciones por política (C=20, ~390 transacciones/s), pila limpia en cada una. Las uniones se compararon contra la relación verdadera, que el bus escribe aparte y el correlacionador nunca lee. Evidencia: <code>evidence/core-link-local-2026-11-19/</code>.</p>
+
+  <div class="callout info">
+    <h3>Por qué la máscara depende de la carga y el token no</h3>
+    <p>Con <em>v</em> dígitos visibles hay 10<sup>v</sup> terminaciones posibles. Como el tracenumber es consecutivo, la terminación es única mientras en la ventana de búsqueda (±5 s) haya menos de 10<sup>v</sup> movimientos. En la prueba hubo unos 3 900: con 4 dígitos (10 000 terminaciones) alcanzó, y con 3 (1 000) no. En un banco el consecutivo lo consumen todos los canales, así que a unos 1 000 movimientos por segundo hasta la máscara de 4 dígitos se vuelve ambigua. El token une igual con cualquier carga.</p>
+  </div>
+  <div class="callout">
+    <h3>La regla de gobernanza, generalizada</h3>
+    <p>Cada eslabón tiene que quedar registrado <strong>al menos por una de las dos capas</strong>, la que llama o la que recibe, en una línea con un nivel activo en producción. Si el valor es sensible, se <strong>tokeniza con llave</strong>; no se enmascara. Además, enmascarar un consecutivo protege menos de lo que parece: con 4 dígitos y la hora, el movimiento se identificó en el 100 % de los casos.</p>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">8 · Resultados de las pruebas de carga</div>
+  <h2>Qué pasó en AWS</h2>
+  <p class="prose">Fueron 11 escenarios el 18 y 19 de noviembre, en una EC2 <code>t3.medium</code>, con la carga desde otra instancia por la red privada y cada contenedor limitado a 0,5 CPU. Se verificó cada transacción contra <code>/trace</code>. Las series están en el tablero de CloudWatch <code>obsproto-pruebas</code> y el detalle en <code>evidence/aws-stress-2026-11-18/</code>.</p>
+
+  <div class="result">
+    <div class="res good"><span class="eyebrow">Correlación con el bus en DEBUG</span><span class="big">100 %</span><p>Unas 100 000 transacciones verificadas. Incluye 10 minutos sostenidos: 59 484 transacciones, 0 errores.</p></div>
+    <div class="res"><span class="eyebrow">Capacidad</span><span class="big">~100 rps</span><p>Techo desde concurrencia 20. A C=200 colapsa: 62 rps y 15 % de errores en el cliente.</p></div>
+    <div class="res good"><span class="eyebrow">Manual frente al modelo</span><span class="big">20,7×</span><p>36,4 ms (4 <code>grep</code>, uno por capa) frente a 1,8 ms (<code>/trace</code>), con 97 000 transacciones en los logs.</p></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Escenario</th><th>Qué se cambió</th><th>rps</th><th>p95</th><th>Resultado</th></tr></thead>
+      <tbody>
+        <tr><td>Normal ×3</td><td>1500 transacciones, C=20</td><td class="num">93–101</td><td class="num">318–396 ms</td><td>100 % completas; variación &lt; 8 %</td></tr>
+        <tr><td>Solo REST</td><td>Sin SOAP</td><td class="num">101</td><td class="num">346 ms</td><td>SOAP no cambia el rendimiento</td></tr>
+        <tr><td>Escalones</td><td>C = 10, 20, 50, 100</td><td class="num">93 → 105</td><td class="num">189 → 1663 ms</td><td>El throughput no sube y la latencia sí: hay cola</td></tr>
+        <tr><td>Concurrencia 200</td><td>C = 200</td><td class="num">62</td><td class="num">4135 ms</td><td><span class="no">Colapso: 1834 errores (15 %)</span></td></tr>
+        <tr><td>Gateway 1 CPU</td><td>C = 50 y 100</td><td class="num">132 / 129</td><td class="num">636 / 1146 ms</td><td>+26 %; el cuello de botella pasa al bus</td></tr>
+        <tr><td>Sostenida 10 min</td><td>C = 50</td><td class="num">99</td><td class="num">899 ms</td><td>Estable; memoria del correlacionador de 145 a 190 MB</td></tr>
+        <tr><td>Fallos del core 10 %</td><td><code>FAULT_RATE=0.1</code></td><td class="num">93</td><td class="num">397 ms</td><td>162 errores (los inyectados); 100 % completas</td></tr>
+        <tr><td>Bus en INFO</td><td>Perfil <code>split</code></td><td class="num">56</td><td class="num">396 ms</td><td><span class="no">0/1000 completas</span>: falta <code>bus+core+modern</code></td></tr>
+        <tr><td>Caída del bus 30 s</td><td>Se detiene a mitad de la carga</td><td class="num">98</td><td class="num">398 ms</td><td>3909 incompletas con las capas faltantes; recuperación &lt; 22 s</td></tr>
+        <tr><td>Sin correlacionador</td><td>Detenido</td><td class="num">95,5</td><td class="num">397 ms</td><td>Overhead no medible</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="callout">
-    <h3>El arranque en frío explica buena parte de la lentitud en AWS</h3>
-    <p>La primera corrida después de levantar la pila en local también fue lenta: 89 rps y p95 cercano a 2 s, casi lo mismo que en AWS (87 rps). Con la pila caliente, la misma carga dio entre 456 y 496 rps con p95 de 45 a 49 ms. Por eso cada escenario empieza con una corrida de calentamiento. Falta confirmarlo en AWS, generando la carga desde otra instancia.</p>
+    <h3>Defecto encontrado y corregido</h3>
+    <p>Al reiniciar el correlacionador con más historia que su memoria (437 000 eventos para un tope de 200 000), quedaban <strong>0 trazas completas</strong>. Los cuatro logs se releen a ritmos distintos y descartaba eventos por orden de llegada. Ahora descarta por la hora del evento. En AWS, con los mismos logs, pasó de <strong>0/1500 a 1500/1500</strong>.</p>
   </div>
-  <div class="callout info">
-    <h3>Límite de tasa del gateway</h3>
-    <p>El gateway acepta 200 transacciones por segundo por canal, con ráfaga de 400. Con tres canales, por encima de unas 600 rps sostenidas aparecen respuestas 429. En los escalones esos 429 se reportan aparte, para no confundirlos con saturación.</p>
-  </div>
+  <p class="caption">Matices: a C=200 el 100 % de correlación es sobre las 10 166 transacciones que respondieron; las 1834 que fallaron en el cliente no se pueden verificar. El límite de tasa del gateway se subió durante las pruebas para no confundir los 429 con saturación.</p>
 </section>
 
 </div>

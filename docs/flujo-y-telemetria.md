@@ -1,6 +1,6 @@
 # Flujo de una transacción y telemetría de cada capa
 
-> Vista visual de este mismo contenido: [`visual/flujo-trazabilidad.html`](visual/flujo-trazabilidad.html) (ábrelo en el navegador).
+> Vista visual de este mismo contenido, con el ejemplo del caso tracenumber y los resultados: [`visual/flujo-trazabilidad.html`](visual/flujo-trazabilidad.html) (ábrelo en el navegador).
 > Detalle de cada formato y de las reglas de validación: [`log-formats.md`](log-formats.md). Decisión: [ADR-0005](adr/0005-heterogeneous-sources.md).
 
 Cada capa habla un **protocolo distinto**, genera **su propio ID** y deja **telemetría en un formato distinto**.
@@ -202,6 +202,8 @@ Con *v* dígitos visibles la terminación es única mientras en la ventana (±5 
 máscara depende de la carga y el token no. Regla: **si se ofusca, tokenizar**. Evidencia: `evidence/core-link-local-2026-11-19/`.
 
 ## 7. Escenarios de carga
+
+**Resultados medidos en AWS (18/19-nov):** [`evidence/aws-stress-2026-11-18/README.md`](../evidence/aws-stress-2026-11-18/README.md).
 
 Cada escenario se publica en el tablero de CloudWatch `obsproto-pruebas` con su nombre (`--cw-scenario`), junto con la CPU y
 memoria de cada contenedor y el estado del correlacionador. Ver [`infra/README.md`](../infra/README.md).
