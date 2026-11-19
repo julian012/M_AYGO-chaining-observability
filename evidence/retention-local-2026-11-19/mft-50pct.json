@@ -1,0 +1,45 @@
+{
+  "transactions": 31113,
+  "complete": 15081,
+  "completePct": 48.47,
+  "completePctByAgeDecile_oldestFirst": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    84.7,
+    100.0,
+    100.0,
+    100.0,
+    100.0
+  ],
+  "incompleteByMissingLayers": {
+    "mft": 16032
+  },
+  "sources": {
+    "gateway": {
+      "lines": 31113,
+      "keptPct": 100
+    },
+    "bus": {
+      "lines": 93339,
+      "keptPct": 100
+    },
+    "core": {
+      "lines": 31113,
+      "keptPct": 100
+    },
+    "modern": {
+      "lines": 31113,
+      "keptPct": 100
+    },
+    "mft": {
+      "lines": 38,
+      "keptPct": 50.0
+    }
+  },
+  "rebuildSeconds": 2.18,
+  "peakMemoryMB": 116.1,
+  "events": 124452
+}

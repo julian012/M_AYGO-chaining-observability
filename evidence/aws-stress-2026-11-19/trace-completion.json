@@ -1,0 +1,12 @@
+{
+  "sample": 300,
+  "withModern": 300,
+  "withoutModern": 0,
+  "secondsAfterResponse": {
+    "min": 0.68,
+    "median": 3.75,
+    "p95": 6.15,
+    "max": 6.79
+  },
+  "note": "lote cada BATCH_INTERVAL_S (5 s) + revisión del FTP cada POLL_S (2 s): máximo teórico ≈ 7 s"
+}

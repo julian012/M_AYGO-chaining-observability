@@ -1,0 +1,59 @@
+{
+  "scenario": "aws-bus-outage",
+  "startedAt": "2026-11-19T04:14:07+00:00",
+  "params": {
+    "n": 11730,
+    "concurrency": 20,
+    "duration": 120.0,
+    "restOnly": false,
+    "url": "https://172.31.5.103:8443"
+  },
+  "requests": 11730,
+  "ok": 7821,
+  "errors": 3909,
+  "statusCounts": {
+    "200": 7821,
+    "500": 1303,
+    "502": 2606
+  },
+  "elapsedSec": 120.2,
+  "throughputRps": 97.6,
+  "byProtocol": {
+    "REST": {
+      "requests": 7820,
+      "ok": 5214,
+      "p50": 190.4,
+      "p95": 398.0
+    },
+    "SOAP": {
+      "requests": 3910,
+      "ok": 2607,
+      "p50": 189.2,
+      "p95": 396.4
+    }
+  },
+  "latencyMs": {
+    "p50": 189.9,
+    "p95": 397.5,
+    "p99": 496.0
+  },
+  "cloudwatch": {
+    "scenario": "aws-bus-outage",
+    "datapoints": 58,
+    "published": true
+  },
+  "correlation": {
+    "checked": 11730,
+    "found": 11730,
+    "complete": 7821,
+    "incompleteByMissingLayers": {
+      "bus+core+modern": 3909
+    },
+    "completePct": 66.68,
+    "sampled": "all"
+  },
+  "outage": {
+    "busStoppedAt": "2026-11-19T04:14:46Z",
+    "busStartedAt": "2026-11-19T04:15:18Z"
+  }
+}

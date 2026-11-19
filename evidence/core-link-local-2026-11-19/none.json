@@ -1,0 +1,48 @@
+{
+  "policy": "none",
+  "busTraceLog": "none",
+  "maskDigits": null,
+  "load": {
+    "requests": 1500,
+    "throughputRps": 463.1,
+    "latencyMs": {
+      "p50": 42.1,
+      "p95": 73.8,
+      "p99": 83.3
+    },
+    "statusCounts": {
+      "200": 1500
+    }
+  },
+  "completeTraces": {
+    "checked": 1500,
+    "found": 1500,
+    "complete": 0,
+    "incompleteByMissingLayers": {
+      "core+modern": 1500
+    },
+    "completePct": 0.0,
+    "sampled": "all"
+  },
+  "linkEval": {
+    "policy": "none",
+    "evaluated": 1700,
+    "correct": 0,
+    "wrong": 0,
+    "unlinked": 1700,
+    "missing": 0,
+    "correctPct": 0.0,
+    "wrongPct": 0.0,
+    "unlinkedPct": 100.0,
+    "wrongExamples": [],
+    "correlatorCoreLink": {
+      "refs": 0,
+      "linked": 0,
+      "ambiguous": 0,
+      "unmatched": 0,
+      "pending": 0
+    },
+    "completeness": 0.0
+  },
+  "busLogSample": "2026-11-19T07:33:05.450Z INFO  [ESB.TransactionRoute] thread=T53536 reply msgId=BUS-df85a29150e2 upstream=GW-35aefb03d487 rc=00 dur_ms=36"
+}

@@ -1,0 +1,35 @@
+{
+  "anomaly": "core-slow",
+  "alerts": {
+    "latency:core": {
+      "firedAfterS": 3.6,
+      "detail": "p95 309 ms frente a una línea base de 39 ms; también afectadas: gateway, bus",
+      "resolvedAfterRevertS": 16.9
+    }
+  },
+  "timeToDetectS": 3.6,
+  "client": {
+    "before": {
+      "requests": 5269,
+      "errorPct": 0.0,
+      "p50": 77.1,
+      "p95": 190.2
+    },
+    "during": {
+      "requests": 1426,
+      "errorPct": 0.0,
+      "p50": 339.9,
+      "p95": 407.2
+    },
+    "after": {
+      "requests": 3198,
+      "errorPct": 0.0,
+      "p50": 80.3,
+      "p95": 173.9
+    }
+  },
+  "falseAlarmsInBaseline": [],
+  "traceCompletenessOfAnomalyWindow": {
+    "atRevertPlusRecovery": 100.0
+  }
+}

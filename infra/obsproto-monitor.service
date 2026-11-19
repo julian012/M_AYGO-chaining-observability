@@ -1,0 +1,18 @@
+# Monitor del host -> CloudWatch (namespace ObsProto). Instalar en la instancia:
+#   sudo cp infra/obsproto-monitor.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now obsproto-monitor
+[Unit]
+Description=obsproto: metricas de contenedores y del correlacionador hacia CloudWatch
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/opt/obsproto
+ExecStart=/usr/bin/python3 /opt/obsproto/scripts/monitor_host.py --interval 10
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,51 @@
+{
+  "scenario": "aws-step-c100",
+  "startedAt": "2026-11-19T14:51:06+00:00",
+  "params": {
+    "n": 6000,
+    "concurrency": 100,
+    "duration": null,
+    "restOnly": false,
+    "url": "https://172.31.5.103:8443"
+  },
+  "requests": 6000,
+  "ok": 6000,
+  "errors": 0,
+  "statusCounts": {
+    "200": 6000
+  },
+  "elapsedSec": 54.9,
+  "throughputRps": 109.3,
+  "byProtocol": {
+    "REST": {
+      "requests": 4000,
+      "ok": 4000,
+      "p50": 834.2,
+      "p95": 1520.4
+    },
+    "SOAP": {
+      "requests": 2000,
+      "ok": 2000,
+      "p50": 830.1,
+      "p95": 1525.8
+    }
+  },
+  "latencyMs": {
+    "p50": 832.7,
+    "p95": 1522.4,
+    "p99": 1867.9
+  },
+  "cloudwatch": {
+    "scenario": "aws-step-c100",
+    "datapoints": 37,
+    "published": true
+  },
+  "correlation": {
+    "checked": 6000,
+    "found": 6000,
+    "complete": 6000,
+    "incompleteByMissingLayers": {},
+    "completePct": 100.0,
+    "sampled": "all"
+  }
+}

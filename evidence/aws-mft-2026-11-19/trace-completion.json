@@ -1,0 +1,24 @@
+{
+  "sample": 300,
+  "withModern": 300,
+  "withoutModern": 0,
+  "secondsAfterResponse": {
+    "min": 3.08,
+    "median": 6.24,
+    "p95": 8.36,
+    "max": 9.1
+  },
+  "responseToMftMoved": {
+    "min": 1.48,
+    "median": 5.0,
+    "p95": 7.38,
+    "max": 7.88
+  },
+  "mftMovedToModern": {
+    "min": 0.49,
+    "median": 1.53,
+    "p95": 1.6,
+    "max": 1.6
+  },
+  "note": "lote del core (5 s) + job del MFT (3 s, si existe) + revisión del moderno (2 s)"
+}

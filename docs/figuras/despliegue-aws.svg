@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1395 625" width="1395" height="625" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#1a1a1a">
+  <title>Fig. 2. Arquitectura de despliegue del prototipo en AWS</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#777"/>
+    </marker>
+    <marker id="sm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <style>
+      .zone{fill:none;stroke:#555;stroke-width:1.4}
+      .vpc{fill:none;stroke:#777;stroke-width:1.3;stroke-dasharray:8 5}
+      .ec2{fill:#f6f8fb;stroke:#333;stroke-width:1.6}
+      .comp{fill:#eceff3;stroke:#333;stroke-width:1.5}
+      .box{fill:#fff;stroke:#555;stroke-width:1.3}
+      .t{font-weight:bold;font-size:17px}
+      .tc{font-weight:bold;font-size:16px;font-family:"Courier New",Courier,monospace}
+      .s{font-size:14.5px;fill:#444}
+      .z{font-size:15px;font-weight:bold;fill:#555}
+      .flow{stroke:#333;stroke-width:1.8;fill:none}
+      .rd{stroke:#777;stroke-width:1.4;stroke-dasharray:6 4;fill:none}
+      .mt{stroke:#1f5fa8;stroke-width:1.6;fill:none}
+    </style>
+  </defs>
+  <rect width="1395" height="625" fill="#fff"/>
+
+  <!-- operador -->
+  <rect class="box" x="15" y="140" width="180" height="100" rx="6"/>
+  <text class="t" x="105" y="178" text-anchor="middle">Operador</text>
+  <text class="s" x="105" y="202" text-anchor="middle">IP autorizada (/32)</text>
+  <text class="s" x="210" y="172">TLS :8443</text>
+  <text class="s" x="120" y="462">SSH :22 y túnel</text>
+
+  <!-- región -->
+  <rect class="zone" x="215" y="15" width="1165" height="570" rx="8"/>
+  <text class="z" x="232" y="40">AWS Academy Learner Lab · us-east-1 · infraestructura definida en CloudFormation</text>
+
+  <!-- VPC -->
+  <rect class="vpc" x="235" y="62" width="915" height="490" rx="6"/>
+  <text class="s" x="250" y="86">VPC del laboratorio · una subred</text>
+
+  <!-- generador de carga -->
+  <rect class="box" x="252" y="300" width="150" height="120" rx="6"/>
+  <text class="t" x="327" y="330" text-anchor="middle">EC2 t3.small</text>
+  <text class="s" x="327" y="354" text-anchor="middle">generador de</text>
+  <text class="s" x="327" y="373" text-anchor="middle">carga (opcional,</text>
+  <text class="s" x="327" y="392" text-anchor="middle">solo en estrés)</text>
+  <text class="s" x="337" y="245">:8443 por la</text>
+  <text class="s" x="337" y="263">red privada</text>
+
+  <!-- instancia de la aplicación -->
+  <rect class="ec2" x="420" y="98" width="715" height="440" rx="6"/>
+  <text class="t" x="437" y="123">EC2 t3.medium · Docker Compose (7 contenedores, una misma imagen)</text>
+  <text class="s" x="437" y="145">grupo de seguridad: 8443 y 22 solo desde la IP autorizada</text>
+
+  <g text-anchor="middle">
+    <rect class="comp" x="437" y="162" width="120" height="55" rx="5"/><text class="tc" x="497" y="186">gateway</text><text class="s" x="497" y="207">TLS, API keys</text>
+    <rect class="comp" x="577" y="162" width="120" height="55" rx="5"/><text class="tc" x="637" y="186">bus</text><text class="s" x="637" y="207">SOAP</text>
+    <rect class="comp" x="717" y="162" width="120" height="55" rx="5"/><text class="tc" x="777" y="186">core</text><text class="s" x="777" y="207">tramas TCP</text>
+    <rect class="comp" x="857" y="162" width="120" height="55" rx="5"/><text class="tc" x="917" y="186">ftp</text><text class="s" x="917" y="207">/outbox /inbox</text>
+    <rect class="comp" x="997" y="162" width="120" height="55" rx="5"/><text class="tc" x="1057" y="186">modern</text><text class="s" x="1057" y="207">lee /inbox</text>
+    <rect class="comp" x="857" y="257" width="120" height="48" rx="5"/><text class="tc" x="917" y="278">mft</text><text class="s" x="917" y="297">mueve archivos</text>
+  </g>
+  <line class="flow" x1="559" y1="189" x2="575" y2="189" marker-end="url(#a)"/>
+  <line class="flow" x1="699" y1="189" x2="715" y2="189" marker-end="url(#a)"/>
+  <line class="flow" x1="839" y1="189" x2="855" y2="189" marker-end="url(#a)"/>
+  <line class="flow" x1="979" y1="189" x2="995" y2="189" marker-end="url(#a)"/>
+  <line class="flow" x1="917" y1="221" x2="917" y2="253" marker-start="url(#sm)" marker-end="url(#sm)"/>
+
+  <!-- volúmenes -->
+  <rect class="box" x="437" y="330" width="680" height="40" rx="5"/>
+  <text class="s" x="777" y="355" text-anchor="middle">volúmenes de log, uno por capa (cada capa escribe solo en el suyo)</text>
+  <line class="rd" x1="497"  y1="219" x2="497"  y2="328" marker-end="url(#g)"/>
+  <line class="rd" x1="637"  y1="219" x2="637"  y2="328" marker-end="url(#g)"/>
+  <line class="rd" x1="777"  y1="219" x2="777"  y2="328" marker-end="url(#g)"/>
+  <line class="rd" x1="917"  y1="307" x2="917"  y2="328" marker-end="url(#g)"/>
+  <line class="rd" x1="1057" y1="219" x2="1057" y2="328" marker-end="url(#g)"/>
+
+  <!-- correlacionador y monitor -->
+  <rect class="comp" x="437" y="410" width="400" height="110" rx="5"/>
+  <text class="t" x="452" y="436">Correlacionador</text>
+  <text class="s" x="452" y="460">monta los volúmenes en solo lectura</text>
+  <text class="s" x="452" y="480">/trace · /stats · /metrics · /alerts</text>
+  <text class="s" x="452" y="500">solo en 127.0.0.1 (se llega por el túnel)</text>
+  <line class="rd" x1="637" y1="372" x2="637" y2="408" marker-end="url(#g)"/>
+  <text class="s" x="647" y="395">solo lectura</text>
+
+  <rect class="box" x="857" y="410" width="260" height="110" rx="5"/>
+  <text class="t" x="872" y="436">Monitor del host</text>
+  <text class="s" x="872" y="460">CPU y memoria por</text>
+  <text class="s" x="872" y="480">contenedor, estado del</text>
+  <text class="s" x="872" y="500">correlacionador y alertas</text>
+
+  <!-- servicios administrados -->
+  <rect class="box" x="1170" y="62" width="195" height="100" rx="6"/>
+  <text class="t" x="1185" y="90">S3</text>
+  <text class="s" x="1185" y="114">evidencia de las</text>
+  <text class="s" x="1185" y="134">pruebas</text>
+  <line class="mt" x1="1137" y1="120" x2="1168" y2="120" marker-end="url(#a)"/>
+
+  <rect class="box" x="1170" y="185" width="195" height="355" rx="6"/>
+  <text class="t" x="1185" y="213">CloudWatch</text>
+  <text class="s" x="1185" y="240">métricas propias:</text>
+  <text class="s" x="1185" y="261">throughput, latencia,</text>
+  <text class="s" x="1185" y="282">errores, completitud,</text>
+  <text class="s" x="1185" y="303">CPU y memoria,</text>
+  <text class="s" x="1185" y="324">alertas activas</text>
+  <text class="s" x="1185" y="358">tablero de pruebas</text>
+  <text class="s" x="1185" y="379">alarma del detector</text>
+  <line class="mt" x1="1119" y1="465" x2="1168" y2="465" marker-end="url(#a)"/>
+
+  <text class="s" x="232" y="575">Sin roles IAM nuevos: ambas instancias usan el perfil de instancia que ya existe en el laboratorio.</text>
+
+  <!-- flechas que cruzan límites -->
+  <line class="flow" x1="195" y1="180" x2="435" y2="180" marker-end="url(#a)"/>
+  <path class="flow" d="M105,240 V470 H435" marker-end="url(#a)"/>
+  <path class="flow" d="M327,300 V205 H435" marker-end="url(#a)"/>
+  <path class="mt" d="M300,420 V545 H1160 V520 H1168" marker-end="url(#a)"/>
+
+  <!-- leyenda -->
+  <g font-size="13.5" fill="#444">
+    <line class="flow" x1="232" y1="608" x2="262" y2="608" marker-end="url(#a)"/><text x="268" y="613">tráfico</text>
+    <line class="rd" x1="335" y1="608" x2="365" y2="608" marker-end="url(#g)"/><text x="371" y="613">logs</text>
+    <line class="mt" x1="420" y1="608" x2="450" y2="608" marker-end="url(#a)"/><text x="456" y="613">métricas y evidencia</text>
+  </g>
+</svg>

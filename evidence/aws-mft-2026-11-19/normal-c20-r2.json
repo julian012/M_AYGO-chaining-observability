@@ -1,0 +1,51 @@
+{
+  "scenario": "aws-normal-c20-r2",
+  "startedAt": "2026-11-19T15:33:08+00:00",
+  "params": {
+    "n": 1500,
+    "concurrency": 20,
+    "duration": null,
+    "restOnly": false,
+    "url": "https://172.31.5.103:8443"
+  },
+  "requests": 1500,
+  "ok": 1500,
+  "errors": 0,
+  "statusCounts": {
+    "200": 1500
+  },
+  "elapsedSec": 14.1,
+  "throughputRps": 106.5,
+  "byProtocol": {
+    "REST": {
+      "requests": 1000,
+      "ok": 1000,
+      "p50": 168.6,
+      "p95": 388.7
+    },
+    "SOAP": {
+      "requests": 500,
+      "ok": 500,
+      "p50": 169.2,
+      "p95": 378.4
+    }
+  },
+  "latencyMs": {
+    "p50": 168.8,
+    "p95": 387.7,
+    "p99": 559.3
+  },
+  "cloudwatch": {
+    "scenario": "aws-normal-c20-r2",
+    "datapoints": 17,
+    "published": true
+  },
+  "correlation": {
+    "checked": 1500,
+    "found": 1500,
+    "complete": 1500,
+    "incompleteByMissingLayers": {},
+    "completePct": 100.0,
+    "sampled": "all"
+  }
+}

@@ -1,0 +1,208 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1650 700" width="1650" height="700" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#1a1a1a">
+  <title>Fig. 1. Comunicación entre componentes y formación de los eslabones</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#777"/>
+    </marker>
+    <style>
+      .comp{fill:#eceff3;stroke:#333;stroke-width:1.6}
+      .tel{fill:#fff;stroke:#555;stroke-width:1.2}
+      .cor{fill:#f6f8fb;stroke:#333;stroke-width:1.6}
+      .sub{fill:#fff;stroke:#555;stroke-width:1.2}
+      .node{fill:#fff;stroke:#333;stroke-width:1.4}
+      .t{font-weight:bold;font-size:16px}
+      .s{font-size:14px;fill:#444}
+      .m{font-family:"Courier New",Courier,monospace;font-size:13.5px}
+      .id{fill:#1f5fa8;font-weight:bold}
+      .cap{font-size:14px;font-weight:bold;fill:#555;letter-spacing:.4px;paint-order:stroke;stroke:#fff;stroke-width:8px;stroke-linejoin:round}
+      .lb{font-size:14px;font-weight:bold}
+      .flow{stroke:#333;stroke-width:1.8;fill:none}
+      .wr{stroke:#777;stroke-width:1.3;fill:none}
+      .rd{stroke:#777;stroke-width:1.3;stroke-dasharray:6 4;fill:none}
+      .badge{fill:#1f5fa8}
+      .bt{fill:#fff;font-size:12px;font-weight:bold}
+    </style>
+  </defs>
+  <rect width="1650" height="700" fill="#fff"/>
+
+  <!-- ===== Fila 1: comunicación ===== -->
+
+  <g text-anchor="middle">
+    <rect class="comp" x="40"   y="55" width="190" height="90" rx="6"/>
+    <text class="t" x="135" y="92">Canales</text><text class="s" x="135" y="114">móvil · web · tercero</text>
+    <rect class="comp" x="315"  y="55" width="190" height="90" rx="6"/>
+    <text class="t" x="410" y="92">Gateway</text><text class="s" x="410" y="114">seguridad e integración</text>
+    <rect class="comp" x="590"  y="55" width="190" height="90" rx="6"/>
+    <text class="t" x="685" y="92">Servicio de bus</text><text class="s" x="685" y="114">ESB</text>
+    <rect class="comp" x="865"  y="55" width="190" height="90" rx="6"/>
+    <text class="t" x="960" y="92">Servicio de tramas</text><text class="s" x="960" y="114">core legado</text>
+    <rect class="comp" x="1140" y="55" width="190" height="90" rx="6"/>
+    <text class="t" x="1235" y="84">Manejador de</text><text class="t" x="1235" y="104">archivos</text><text class="s" x="1235" y="125">transferencia gestionada</text>
+    <rect class="comp" x="1415" y="55" width="190" height="90" rx="6"/>
+    <text class="t" x="1510" y="92">Servicio moderno</text><text class="s" x="1510" y="114">instrumentado</text>
+  </g>
+
+  <!-- flechas horizontales -->
+  <line class="flow" x1="232" y1="92" x2="313" y2="92" marker-end="url(#a)"/>
+  <line class="flow" x1="507" y1="92" x2="588" y2="92" marker-end="url(#a)"/>
+  <line class="flow" x1="782" y1="85" x2="863" y2="85" marker-end="url(#a)"/>
+  <line class="flow" x1="863" y1="110" x2="782" y2="110" marker-end="url(#a)" stroke-dasharray="5 3"/>
+  <line class="flow" x1="1057" y1="92" x2="1138" y2="92" marker-end="url(#a)"/>
+  <line class="flow" x1="1332" y1="92" x2="1413" y2="92" marker-end="url(#a)"/>
+
+  <!-- etiquetas de protocolo y de dónde viaja el ID anterior -->
+  <g text-anchor="middle">
+    <text class="lb" x="272.5" y="168">REST/JSON · SOAP</text><text class="m" x="272.5" y="187">X-Client-Id</text>
+    <text class="lb" x="547.5" y="168">SOAP 1.1</text><text class="m" x="547.5" y="187">wsa:MessageID</text>
+    <text class="lb" x="822.5" y="168">Trama por TCP</text><text class="m" x="822.5" y="187">sin ID del bus</text>
+    <text class="s" x="822.5" y="205">← tracenumber en la respuesta</text>
+    <text class="lb" x="1097.5" y="168">Archivo plano · FTP</text><text class="m" x="1097.5" y="187">/outbox</text>
+    <text class="lb" x="1372.5" y="168">Archivo plano · FTP</text><text class="m" x="1372.5" y="187">/inbox</text>
+  </g>
+
+  <!-- ===== Fila 2: telemetría ===== -->
+  <g>
+    <line class="wr" x1="135"  y1="147" x2="135"  y2="236" marker-end="url(#g)"/>
+    <line class="wr" x1="410"  y1="147" x2="410"  y2="236" marker-end="url(#g)"/>
+    <line class="wr" x1="685"  y1="147" x2="685"  y2="236" marker-end="url(#g)"/>
+    <line class="wr" x1="960"  y1="147" x2="960"  y2="236" marker-end="url(#g)"/>
+    <line class="wr" x1="1235" y1="147" x2="1235" y2="236" marker-end="url(#g)"/>
+    <line class="wr" x1="1510" y1="147" x2="1510" y2="236" marker-end="url(#g)"/>
+  </g>
+
+  <rect class="tel" x="15"   y="238" width="240" height="112" rx="4"/>
+  <rect class="tel" x="290"  y="238" width="240" height="112" rx="4"/>
+  <rect class="tel" x="565"  y="238" width="240" height="112" rx="4"/>
+  <rect class="tel" x="840"  y="238" width="240" height="112" rx="4"/>
+  <rect class="tel" x="1115" y="238" width="240" height="112" rx="4"/>
+  <rect class="tel" x="1390" y="238" width="240" height="112" rx="4"/>
+
+  <g>
+    <text class="t" x="27" y="262" font-size="15">IDs enviados</text>
+    <text class="m" x="27" y="286"><tspan class="id">CLI-7f3a…</tspan></text>
+    <text class="s" x="27" y="310">verdad de referencia para</text>
+    <text class="s" x="27" y="328">verificar cada traza</text>
+
+    <text class="t" x="302" y="262" font-size="15">Access log clave=valor</text>
+    <text class="m" x="302" y="286">in_id=<tspan class="id">CLI-7f3a…</tspan></text>
+    <text class="m" x="302" y="306">tid=<tspan class="id">GW-91c2…</tspan></text>
+
+    <text class="t" x="577" y="262" font-size="15">Texto con niveles</text>
+    <text class="m" x="577" y="286">upstream=<tspan class="id">GW-91c2…</tspan></text>
+    <text class="m" x="577" y="306">msgId=BUS-fc28…</text>
+    <text class="m" x="577" y="326">trace=<tspan class="id">tok_9f2c…</tspan></text>
+    <circle class="badge" cx="788" cy="321" r="9"/><text class="bt" x="788" y="325.5" text-anchor="middle">1</text>
+
+    <text class="t" x="852" y="262" font-size="15">Ancho fijo, 81 car.</text>
+    <text class="m" x="852" y="286"><tspan class="id">CORE-4b7e…</tspan></text>
+    <text class="m" x="852" y="306">tn=<tspan class="id">000123456789</tspan></text>
+    <text class="s" x="852" y="328">no conoce el ID del bus</text>
+    <circle class="badge" cx="1063" cy="301" r="9"/><text class="bt" x="1063" y="305.5" text-anchor="middle">1</text>
+
+    <text class="t" x="1127" y="262" font-size="15">Sesión SSH y archivos</text>
+    <text class="m" x="1127" y="286">transfer=MFT-a41e…</text>
+    <text class="m" x="1127" y="306">NOV_…_<tspan class="id">1015-1020</tspan>.txt</text>
+    <text class="s" x="1127" y="328">nodo, fecha y rango de horas</text>
+    <circle class="badge" cx="1338" cy="301" r="9"/><text class="bt" x="1338" y="305.5" text-anchor="middle">2</text>
+
+    <text class="t" x="1402" y="262" font-size="15">Spans estilo OTel</text>
+    <text class="m" x="1402" y="286">upstream.id=<tspan class="id">CORE-4b7e…</tspan></text>
+    <text class="m" x="1402" y="306">app.id=MOD-5d10…</text>
+  </g>
+
+  <!-- ===== Fila 3: correlación ===== -->
+  <g>
+    <line class="rd" x1="410"  y1="352" x2="410"  y2="413" marker-end="url(#g)"/>
+    <line class="rd" x1="685"  y1="352" x2="685"  y2="413" marker-end="url(#g)"/>
+    <line class="rd" x1="960"  y1="352" x2="960"  y2="413" marker-end="url(#g)"/>
+    <line class="rd" x1="1235" y1="352" x2="1235" y2="413" marker-end="url(#g)"/>
+    <line class="rd" x1="1510" y1="352" x2="1510" y2="413" marker-end="url(#g)"/>
+    <line class="rd" x1="135"  y1="352" x2="135"  y2="413" marker-end="url(#g)"/>
+    <text class="s" x="1245" y="392">lectura en modo de solo lectura</text>
+  </g>
+
+  <!-- verificación -->
+  <rect class="cor" x="15" y="415" width="240" height="235" rx="6"/>
+  <text class="t" x="27" y="442">Generador de carga</text>
+  <text class="s" x="27" y="470">consulta /trace por cada</text>
+  <text class="s" x="27" y="488">ID enviado y mide el</text>
+  <text class="s" x="27" y="506">% de trazas completas</text>
+  <text class="s" x="27" y="534">un archivo de verdad del</text>
+  <text class="s" x="27" y="552">bus (que el correlacionador</text>
+  <text class="s" x="27" y="570">no lee) mide las uniones</text>
+  <text class="s" x="27" y="588">falsas</text>
+
+  <!-- correlacionador -->
+  <rect class="cor" x="290" y="415" width="1340" height="235" rx="6"/>
+  <text class="t" x="305" y="442">Correlacionador: une solo por identificador explícito; nunca por hora, hilo u orden</text>
+
+  <rect class="sub" x="305" y="460" width="240" height="175" rx="4"/>
+  <text class="t" x="317" y="484" font-size="15">Parsers por formato</text>
+  <text class="s" x="317" y="508">clave=valor · niveles ·</text>
+  <text class="s" x="317" y="526">ancho fijo · sesión · spans</text>
+  <text class="s" x="317" y="554">validan cada línea como</text>
+  <text class="s" x="317" y="572">entrada no confiable y</text>
+  <text class="s" x="317" y="590">extraen el par</text>
+  <text class="m" x="317" y="612">(ID recibido → ID propio)</text>
+
+  <line class="flow" x1="547" y1="547" x2="563" y2="547" marker-end="url(#a)"/>
+
+  <rect class="sub" x="565" y="460" width="625" height="175" rx="4"/>
+  <text class="t" x="577" y="484" font-size="15">Grafo padre → hijo</text>
+  <g text-anchor="middle" class="m">
+    <rect class="node" x="580" y="500" width="78" height="30" rx="15"/><text x="619"  y="520">CLI</text>
+    <rect class="node" x="690" y="500" width="78" height="30" rx="15"/><text x="729"  y="520">GW</text>
+    <rect class="node" x="800" y="500" width="78" height="30" rx="15"/><text x="839"  y="520">BUS</text>
+    <rect class="node" x="910" y="500" width="78" height="30" rx="15"/><text x="949"  y="520">CORE</text>
+    <rect class="node" x="1020" y="500" width="78" height="30" rx="15"/><text x="1059" y="520">MOD</text>
+    <rect class="node" x="910" y="572" width="78" height="30" rx="15" stroke-dasharray="5 3"/><text x="949" y="592">MFT</text>
+  </g>
+  <line class="flow" x1="658" y1="515" x2="688" y2="515" marker-end="url(#a)"/>
+  <line class="flow" x1="768" y1="515" x2="798" y2="515" marker-end="url(#a)"/>
+  <line class="flow" x1="878" y1="515" x2="908" y2="515" marker-end="url(#a)" stroke="#1f5fa8"/>
+  <line class="flow" x1="988" y1="515" x2="1018" y2="515" marker-end="url(#a)"/>
+  <line class="flow" x1="949" y1="532" x2="949" y2="570" stroke="#1f5fa8" stroke-dasharray="5 3"/>
+  <circle class="badge" cx="893" cy="494" r="9"/><text class="bt" x="893" y="498.5" text-anchor="middle">1</text>
+  <circle class="badge" cx="966" cy="551" r="9"/><text class="bt" x="966" y="555.5" text-anchor="middle">2</text>
+
+  <circle class="badge" cx="589" cy="556" r="9"/><text class="bt" x="589" y="560.5" text-anchor="middle">1</text>
+  <text class="s" x="604" y="561">bus → core: tracenumber del log del bus</text>
+  <text class="s" x="604" y="579">(token HMAC o máscara; un solo candidato)</text>
+  <circle class="badge" cx="589" cy="602" r="9"/><text class="bt" x="589" y="606.5" text-anchor="middle">2</text>
+  <text class="s" x="604" y="607">hora del movimiento dentro</text>
+  <text class="s" x="604" y="625">del rango del nombre del archivo</text>
+  <text class="s" x="1003" y="592">asociada por hora,</text>
+  <text class="s" x="1003" y="610">no es un hijo del grafo</text>
+
+  <line class="flow" x1="1192" y1="547" x2="1208" y2="547" marker-end="url(#a)"/>
+
+  <rect class="sub" x="1210" y="460" width="405" height="175" rx="4"/>
+  <text class="t" x="1222" y="484" font-size="15">Salidas</text>
+  <text class="m" x="1222" y="510">/trace/{id}</text>
+  <text class="s" x="1316" y="510">con el ID de cualquier capa</text>
+  <text class="m" x="1222" y="532">traceId = SHA-256(raíz)[:32]</text>
+  <text class="s" x="1222" y="558">cadena rota → traza incompleta,</text>
+  <text class="s" x="1222" y="576">con las capas faltantes</text>
+  <text class="m" x="1222" y="604">/alerts</text>
+  <text class="s" x="1290" y="604">silencio · ruptura · latencia</text>
+  <text class="s" x="1222" y="624">→ métrica y alarma en CloudWatch</text>
+
+  <line class="flow" x1="288" y1="530" x2="257" y2="530" marker-end="url(#a)"/>
+
+  <!-- leyenda -->
+  <g font-size="13.5" fill="#444">
+    <line class="flow" x1="15" y1="680" x2="50" y2="680" marker-end="url(#a)"/><text x="58" y="685">llamada o entrega</text>
+    <line class="wr" x1="200" y1="680" x2="235" y2="680" marker-end="url(#g)"/><text x="243" y="685">escribe su telemetría</text>
+    <line class="rd" x1="410" y1="680" x2="445" y2="680" marker-end="url(#g)"/><text x="453" y="685">lectura</text>
+    <text x="540" y="685"><tspan class="id" font-family="Courier New, monospace">CLI-7f3a…</tspan>  valor que aparece en dos fuentes y forma un eslabón</text>
+    <circle class="badge" cx="1000" cy="680" r="9"/><text class="bt" x="1000" y="684.5" text-anchor="middle">1</text>
+    <circle class="badge" cx="1024" cy="680" r="9"/><text class="bt" x="1024" y="684.5" text-anchor="middle">2</text>
+    <text x="1040" y="685">eslabones que una capa no registra (Sección III-D)</text>
+  </g>
+  <text class="cap" x="15" y="36">COMUNICACIÓN DE LA TRANSACCIÓN (CADA CAPA GENERA SU PROPIO ID)</text>
+  <text class="cap" x="15" y="224">TELEMETRÍA QUE DEJA CADA CAPA (FORMATO DE PRODUCCIÓN)</text>
+  <text class="cap" x="15" y="392">CORRELACIÓN Y VERIFICACIÓN</text>
+</svg>

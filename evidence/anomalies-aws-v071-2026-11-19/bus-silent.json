@@ -1,0 +1,40 @@
+{
+  "anomaly": "bus-silent",
+  "alerts": {
+    "source_silent:bus": {
+      "firedAfterS": 1.4,
+      "detail": "no se puede leer: PermissionError",
+      "resolvedAfterRevertS": 3.4
+    },
+    "chain_break:bus": {
+      "firedAfterS": 5.7,
+      "detail": "101 de 200 trazas recientes sin bus",
+      "resolvedAfterRevertS": 3.4
+    }
+  },
+  "timeToDetectS": 1.4,
+  "client": {
+    "before": {
+      "requests": 5094,
+      "errorPct": 0.0,
+      "p50": 85.2,
+      "p95": 186.1
+    },
+    "during": {
+      "requests": 5147,
+      "errorPct": 0.0,
+      "p50": 87.3,
+      "p95": 183.3
+    },
+    "after": {
+      "requests": 3127,
+      "errorPct": 0.0,
+      "p50": 82.2,
+      "p95": 177.7
+    }
+  },
+  "falseAlarmsInBaseline": [],
+  "traceCompletenessOfAnomalyWindow": {
+    "atRevertPlusRecovery": 100.0
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "scenario": "aws-bus-info",
+  "startedAt": "2026-11-19T04:12:55+00:00",
+  "params": {
+    "n": 1000,
+    "concurrency": 20,
+    "duration": null,
+    "restOnly": false,
+    "url": "https://172.31.5.103:8443"
+  },
+  "requests": 1000,
+  "ok": 960,
+  "errors": 40,
+  "statusCounts": {
+    "200": 960,
+    "500": 13,
+    "502": 27
+  },
+  "elapsedSec": 18.0,
+  "throughputRps": 55.6,
+  "byProtocol": {
+    "REST": {
+      "requests": 667,
+      "ok": 640,
+      "p50": 187.6,
+      "p95": 397.4
+    },
+    "SOAP": {
+      "requests": 333,
+      "ok": 320,
+      "p50": 189.1,
+      "p95": 386.5
+    }
+  },
+  "latencyMs": {
+    "p50": 188.2,
+    "p95": 396.0,
+    "p99": 2018.6
+  },
+  "cloudwatch": {
+    "scenario": "aws-bus-info",
+    "datapoints": 14,
+    "published": true
+  },
+  "correlation": {
+    "checked": 1000,
+    "found": 1000,
+    "complete": 0,
+    "incompleteByMissingLayers": {
+      "bus+core+modern": 1000
+    },
+    "completePct": 0.0,
+    "sampled": "all"
+  }
+}

@@ -1,0 +1,657 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Prototipo de observabilidad: una instancia EC2 con Docker Compose + un bucket cifrado para evidencias.
+  Diseñada para AWS Academy Learner Lab (sin iam:CreateRole: usa el LabInstanceProfile existente)
+  y para un presupuesto reducido (sin NAT Gateway, sin ALB, sin EKS).
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC por defecto de la cuenta (aws ec2 describe-vpcs --filters Name=isDefault,Values=true).
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subred pública de esa VPC (necesita IP pública para instalar paquetes).
+  AllowedCidr:
+    Type: String
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/(3[0-2]|[12]?\d)$'
+    ConstraintDescription: CIDR IPv4 válido, p. ej. 203.0.113.10/32 (tu IP pública). No se permite 0.0.0.0/0.
+    Description: Único origen que puede llegar por SSH y al gateway. Usa tu IP /32.
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.small, t3.medium, t3.large]
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: vockey
+    Description: Llave SSH existente (en el Learner Lab es vockey).
+  InstanceProfileName:
+    Type: String
+    Default: LabInstanceProfile
+    Description: Perfil de instancia existente. No se crean roles IAM (denegado en el Learner Lab).
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  AppAmiId:
+    Type: String
+    Default: ""
+    AllowedPattern: '^(ami-[0-9a-f]{8,17})?$'
+    Description: >-
+      AMI fija de la instancia de la aplicación. Vacío = la última AL2023. En una actualización pasa la AMI actual,
+      porque si AWS publicó una nueva el stack REEMPLAZARÍA la instancia (nueva IP, sin datos).
+  RepoUrl:
+    Type: String
+    AllowedPattern: '^https://[A-Za-z0-9./_-]+\.git$'
+    Description: URL HTTPS (repositorio público) desde donde la instancia clona el prototipo.
+  RepoRef:
+    Type: String
+    Default: main
+    AllowedPattern: '^[A-Za-z0-9._/-]+$'
+    Description: Rama o tag a desplegar (preferible un tag inmutable, p. ej. v1.0.0).
+  ComposeVersion:
+    Type: String
+    Default: v2.29.7
+    AllowedPattern: '^v\d+\.\d+\.\d+$'
+    Description: Versión fijada del plugin docker compose.
+
+  EnableLoadGenerator:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Crea una segunda instancia solo para generar carga (pruebas de estrés). Apágala o elimínala al terminar.
+  LoadGeneratorType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium]
+
+Conditions:
+  CreateLoadGen: !Equals [!Ref EnableLoadGenerator, "true"]
+  PinAppAmi: !Not [!Equals [!Ref AppAmiId, ""]]
+
+Rules:
+  NoOpenToWorld:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AllowedCidr, "0.0.0.0/0"]]
+        AssertDescription: AllowedCidr no puede ser 0.0.0.0/0 (la instancia no debe quedar abierta a Internet).
+
+Resources:
+  # ---- Red: solo tu IP entra; la salida se limita a lo imprescindible ----
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Prototipo observabilidad - acceso minimo desde una unica IP
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref AllowedCidr, Description: "SSH (y tunel al correlacionador)" }
+        - { IpProtocol: tcp, FromPort: 8443, ToPort: 8443, CidrIp: !Ref AllowedCidr, Description: "Gateway TLS" }
+      SecurityGroupEgress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: "HTTPS (paquetes, imagenes, git)" }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: "HTTP (repositorios de paquetes)" }
+        - { IpProtocol: udp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS" }
+        - { IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS sobre TCP" }
+      Tags:
+        - { Key: Project, Value: obsproto }
+
+  # ---- Generador de carga (opcional): así la carga no compite por CPU con la pila ----
+  LoadGenSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateLoadGen
+    Properties:
+      GroupDescription: Generador de carga - SSH desde una IP y salida al gateway por la red privada
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref AllowedCidr, Description: "SSH" }
+      SecurityGroupEgress:
+        - { IpProtocol: tcp, FromPort: 8443, ToPort: 8443, DestinationSecurityGroupId: !Ref InstanceSecurityGroup, Description: "Gateway TLS (red privada)" }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: "HTTPS (paquetes, git, CloudWatch)" }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: "HTTP (repositorios de paquetes)" }
+        - { IpProtocol: udp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS" }
+        - { IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS sobre TCP" }
+      Tags:
+        - { Key: Project, Value: obsproto }
+
+  GatewayFromLoadGen:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: CreateLoadGen
+    Properties:
+      GroupId: !Ref InstanceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8443
+      ToPort: 8443
+      SourceSecurityGroupId: !Ref LoadGenSecurityGroup
+      Description: Gateway TLS desde el generador de carga (solo ese grupo)
+
+  LoadGenInstance:
+    Type: AWS::EC2::Instance
+    Condition: CreateLoadGen
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref LoadGeneratorType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfileName # PutMetricData hacia CloudWatch y SSM
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref LoadGenSecurityGroup]
+      Monitoring: false
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeType: gp3, VolumeSize: 8, Encrypted: true, DeleteOnTermination: true }
+      Tags:
+        - { Key: Name, Value: obsproto-loadgen }
+        - { Key: Project, Value: obsproto }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Solo el generador (stdlib). Las API keys y el certificado se copian después por SSH, nunca por UserData.
+          set -euxo pipefail
+          dnf install -y git
+          git clone --depth 1 --branch ${RepoRef} ${RepoUrl} /opt/obsproto
+          chown -R ec2-user:ec2-user /opt/obsproto
+
+  # ---- Evidencias de pruebas: cifrado, sin acceso publico, solo TLS ----
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - { Id: expire-evidence, Status: Enabled, ExpirationInDays: 30 }
+      Tags:
+        - { Key: Project, Value: obsproto }
+
+  EvidenceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EvidenceBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt EvidenceBucket.Arn
+              - !Sub "${EvidenceBucket.Arn}/*"
+            Condition:
+              Bool: { "aws:SecureTransport": "false" }
+
+  # ---- Computo ----
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !If [PinAppAmi, !Ref AppAmiId, !Ref LatestAmiId]
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfileName
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref InstanceSecurityGroup]
+      Monitoring: false
+      MetadataOptions:
+        HttpTokens: required # IMDSv2 obligatorio (mitiga robo de credenciales por SSRF)
+        HttpPutResponseHopLimit: 1 # los contenedores no pueden alcanzar el servicio de metadatos
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 20
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - { Key: Name, Value: obsproto }
+        - { Key: Project, Value: obsproto }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Sin secretos aqui: .env y el certificado se generan EN la instancia (scripts/gen-*.sh).
+          set -euxo pipefail
+          dnf install -y docker git openssl
+          systemctl enable --now docker
+
+          # Plugin de compose con version fijada y verificacion de integridad (SHA-256)
+          PLUGIN_DIR=/usr/local/lib/docker/cli-plugins
+          BASE=https://github.com/docker/compose/releases/download/${ComposeVersion}
+          mkdir -p "$PLUGIN_DIR"
+          curl -fsSL -o "$PLUGIN_DIR/docker-compose" "$BASE/docker-compose-linux-x86_64"
+          EXPECTED=$(curl -fsSL "$BASE/docker-compose-linux-x86_64.sha256" | awk '{print $1}')
+          ACTUAL=$(sha256sum "$PLUGIN_DIR/docker-compose" | awk '{print $1}')
+          [ -n "$EXPECTED" ] && [ "$EXPECTED" = "$ACTUAL" ]
+          chmod 755 "$PLUGIN_DIR/docker-compose"
+
+          # IP publica via IMDSv2 para el SAN del certificado
+          TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+          PUBLIC_IP=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
+
+          git clone --depth 1 --branch ${RepoRef} ${RepoUrl} /opt/obsproto
+          cd /opt/obsproto
+          scripts/gen-certs.sh "$PUBLIC_IP"
+          GATEWAY_BIND=0.0.0.0 scripts/gen-env.sh
+          docker compose up -d --build
+
+  # ---- Alarma: el detector del correlacionador tiene una alerta activa (fuente silenciosa, cadena rota o latencia) ----
+  DetectorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: obsproto-detector-alerta-activa
+      AlarmDescription: >-
+        El detector del correlacionador reporta una anomalía (source_silent, chain_break o latency). Ver /alerts o el tablero
+        obsproto-pruebas para la regla y la capa.
+      Namespace: ObsProto
+      MetricName: ActiveAlerts
+      Dimensions: [{ Name: Source, Value: correlator }]
+      Statistic: Maximum
+      Period: 10
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  # ---- Tablero de las pruebas de carga (métricas propias, namespace ObsProto) ----
+  TestDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: obsproto-pruebas
+      DashboardBody: !Sub |
+          {
+           "start": "-PT3H",
+           "periodOverride": "inherit",
+           "widgets": [
+            {
+             "type": "text",
+             "x": 0,
+             "y": 0,
+             "width": 24,
+             "height": 3,
+             "properties": {
+              "markdown": "## Pruebas de carga · obsproto\nCada escenario es una corrida de `scripts/generate_load.py --cw-scenario <nombre>`. Las series del **generador** (fila 1 y 2) se publican al terminar la corrida, en ventanas de 10 s. Las del **host** (filas 3 y 4) las publica `scripts/monitor_host.py` cada 10 s mientras corre la prueba. Guía de escenarios: `docs/flujo-y-telemetria.md` (sección 7). Evidencia en `evidence/*.json`."
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 3,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Transacciones por segundo (generador)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"Throughput\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "rps",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 3,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Latencia p95 (ms)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"LatencyP95\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "ms",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 9,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Errores por ventana de 10 s",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"Errors\"', 'Sum', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Sum",
+              "yAxis": {
+               "left": {
+                "label": "errores",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 9,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "% de trazas completas al final de cada escenario",
+              "view": "bar",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Scenario} MetricName=\"CompleteTracesPct\"', 'Maximum', 60)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 60,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "%",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 15,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "CPU por contenedor (%)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Container} MetricName=\"CPUPercent\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "% de 1 vCPU",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 15,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "Memoria por contenedor (MB)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Container} MetricName=\"MemoryMB\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "MB",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 21,
+             "width": 8,
+             "height": 6,
+             "properties": {
+              "title": "Correlacionador: % de trazas completas acumulado",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Source} MetricName=\"CompletenessPct\"', 'Average', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Average",
+              "yAxis": {
+               "left": {
+                "label": "%",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 8,
+             "y": 21,
+             "width": 8,
+             "height": 6,
+             "properties": {
+              "title": "Respuestas del bus sin padre · líneas descartadas",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Source} MetricName=\"BusUnlinkedReplies\"', 'Maximum', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ],
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Source} MetricName=\"MalformedLines\"', 'Maximum', 10)",
+                 "label": "",
+                 "id": "e1"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "líneas",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 16,
+             "y": 21,
+             "width": 8,
+             "height": 6,
+             "properties": {
+              "title": "Eventos leídos por capa",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Layer} MetricName=\"EventsIngested\"', 'Maximum', 10)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 10,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "eventos",
+                "showUnits": false
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 0,
+             "y": 27,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "CPU de la instancia (EC2, resolución 5 min)",
+              "view": "timeSeries",
+              "region": "${AWS::Region}",
+              "stat": "Average",
+              "period": 300,
+              "metrics": [
+               [
+                "AWS/EC2",
+                "CPUUtilization",
+                "InstanceId",
+                "${AppInstance}"
+               ]
+              ],
+              "yAxis": {
+               "left": {
+                "min": 0,
+                "max": 100
+               }
+              }
+             }
+            },
+            {
+             "type": "metric",
+             "x": 12,
+             "y": 27,
+             "width": 12,
+             "height": 6,
+             "properties": {
+              "title": "REST frente a SOAP: p95 por escenario (ms)",
+              "view": "bar",
+              "region": "${AWS::Region}",
+              "metrics": [
+               [
+                {
+                 "expression": "SEARCH('{ObsProto,Protocol,Scenario} MetricName=\"LatencyP95\"', 'Maximum', 60)",
+                 "label": "",
+                 "id": "e0"
+                }
+               ]
+              ],
+              "period": 60,
+              "stat": "Maximum",
+              "yAxis": {
+               "left": {
+                "label": "ms",
+                "showUnits": false
+               }
+              }
+             }
+            },
+           {
+            "type": "metric",
+            "x": 0,
+            "y": 33,
+            "width": 24,
+            "height": 6,
+            "properties": {
+             "title": "Alertas del detector (fuente silenciosa, cadena rota, latencia)",
+             "view": "timeSeries",
+             "region": "${AWS::Region}",
+             "stat": "Maximum",
+             "period": 10,
+             "metrics": [[{"expression": "SEARCH('{ObsProto,Alert} MetricName=\"AlertActive\"', 'Maximum', 10)", "id": "a0", "label": ""}]]
+            }
+           },
+           {
+            "type": "alarm",
+            "x": 0,
+            "y": 39,
+            "width": 24,
+            "height": 2,
+            "properties": {
+             "title": "Estado de la alarma del detector",
+             "alarms": ["${DetectorAlarm.Arn}"]
+            }
+           }
+           ]
+          }
+
+Outputs:
+  InstanceId:
+    Value: !Ref AppInstance
+  PublicIp:
+    Value: !GetAtt AppInstance.PublicIp
+  PrivateIp:
+    Description: IP privada de la aplicación (el generador de carga llega al gateway por aquí).
+    Value: !GetAtt AppInstance.PrivateIp
+  LoadGenPublicIp:
+    Condition: CreateLoadGen
+    Value: !GetAtt LoadGenInstance.PublicIp
+  GatewayUrl:
+    Value: !Sub "https://${AppInstance.PublicIp}:8443"
+  CorrelatorTunnel:
+    Description: El correlacionador no se expone; accede por tunel SSH.
+    Value: !Sub "ssh -i labsuser.pem -L 9100:127.0.0.1:9100 ec2-user@${AppInstance.PublicIp}"
+  EvidenceBucketName:
+    Value: !Ref EvidenceBucket
+  DashboardUrl:
+    Description: Tablero de CloudWatch con los resultados de las pruebas de carga.
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/obsproto-pruebas"

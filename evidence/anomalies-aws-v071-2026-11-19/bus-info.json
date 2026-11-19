@@ -1,0 +1,35 @@
+{
+  "anomaly": "bus-info",
+  "alerts": {
+    "chain_break:bus": {
+      "firedAfterS": 5.6,
+      "detail": "135 de 200 trazas recientes sin bus",
+      "resolvedAfterRevertS": 10.0
+    }
+  },
+  "timeToDetectS": 5.6,
+  "client": {
+    "before": {
+      "requests": 5261,
+      "errorPct": 0.0,
+      "p50": 81.8,
+      "p95": 183.6
+    },
+    "during": {
+      "requests": 5385,
+      "errorPct": 0.0,
+      "p50": 81.4,
+      "p95": 170.0
+    },
+    "after": {
+      "requests": 2873,
+      "errorPct": 0.0,
+      "p50": 85.4,
+      "p95": 193.6
+    }
+  },
+  "falseAlarmsInBaseline": [],
+  "traceCompletenessOfAnomalyWindow": {
+    "atRevertPlusRecovery": 0.0
+  }
+}

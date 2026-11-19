@@ -1,0 +1,36 @@
+# Secretos y credenciales (NUNCA versionar)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+certs/
+credenciales*
+credentials*
+.aws/
+samconfig.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs y evidencia local no curada
+*.log
+evidence/*
+!evidence/.gitkeep
+!evidence/README.md
+
+# SO / IDE
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,45 @@
+{
+  "anomaly": "mft-stopped",
+  "alerts": {
+    "chain_break:mft": {
+      "firedAfterS": 16.5,
+      "detail": "166 de 200 trazas recientes sin mft",
+      "resolvedAfterRevertS": 8.4
+    },
+    "source_silent:mft": {
+      "firedAfterS": 20.5,
+      "detail": "sin líneas nuevas hace 25 s",
+      "resolvedAfterRevertS": 6.3
+    },
+    "source_silent:modern": {
+      "firedAfterS": 22.6,
+      "detail": "sin líneas nuevas hace 25 s",
+      "resolvedAfterRevertS": 8.4
+    }
+  },
+  "timeToDetectS": 16.5,
+  "client": {
+    "before": {
+      "requests": 17368,
+      "errorPct": 0.0,
+      "p50": 27.1,
+      "p95": 43.2
+    },
+    "during": {
+      "requests": 17487,
+      "errorPct": 0.0,
+      "p50": 27.3,
+      "p95": 43.2
+    },
+    "after": {
+      "requests": 9932,
+      "errorPct": 0.0,
+      "p50": 27.7,
+      "p95": 43.7
+    }
+  },
+  "falseAlarmsInBaseline": [],
+  "traceCompletenessOfAnomalyWindow": {
+    "atRevertPlusRecovery": 100.0
+  }
+}

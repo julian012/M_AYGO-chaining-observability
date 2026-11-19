@@ -1,0 +1,43 @@
+{
+  "scenario": "aws-no-correlator-c20",
+  "startedAt": "2026-11-19T15:18:58+00:00",
+  "params": {
+    "n": 1500,
+    "concurrency": 20,
+    "duration": null,
+    "restOnly": false,
+    "url": "https://172.31.5.103:8443"
+  },
+  "requests": 1500,
+  "ok": 1500,
+  "errors": 0,
+  "statusCounts": {
+    "200": 1500
+  },
+  "elapsedSec": 14.9,
+  "throughputRps": 100.6,
+  "byProtocol": {
+    "REST": {
+      "requests": 1000,
+      "ok": 1000,
+      "p50": 175.9,
+      "p95": 422.0
+    },
+    "SOAP": {
+      "requests": 500,
+      "ok": 500,
+      "p50": 174.4,
+      "p95": 411.6
+    }
+  },
+  "latencyMs": {
+    "p50": 175.7,
+    "p95": 421.1,
+    "p99": 660.6
+  },
+  "cloudwatch": {
+    "scenario": "aws-no-correlator-c20",
+    "datapoints": 17,
+    "published": true
+  }
+}

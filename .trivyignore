@@ -1,0 +1,14 @@
+# Hallazgos de Trivy revisados y aceptados. Cada uno está declarado en docs/threat-model.md (riesgos residuales).
+
+# AWS-0028 (IMDSv2): falso positivo. infra/template.yaml fija MetadataOptions.HttpTokens=required
+# y HttpPutResponseHopLimit=1 en AWS::EC2::Instance; Trivy no evalúa esa propiedad en ese tipo de recurso.
+AWS-0028
+
+# AWS-0104 (egress 0.0.0.0/0): sin NAT ni VPC endpoints (descartados por costo, ADR-0002) la instancia
+# necesita salir a GitHub, Docker Hub y repositorios de paquetes, cuyas IPs no son fijas.
+# Mitigación: solo puertos 443/80/53; entrada limitada a una IP /32. Riesgo residual 8.
+AWS-0104
+
+# AWS-0132 (S3 sin CMK): el bucket usa SSE-S3 (AES-256), bloquea acceso público y exige TLS.
+# Una CMK cuesta ~USD 1/mes y los datos son sintéticos. Riesgo residual 9.
+AWS-0132

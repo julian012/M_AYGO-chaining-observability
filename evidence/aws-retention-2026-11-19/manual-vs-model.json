@@ -1,0 +1,53 @@
+{
+  "samples": 30,
+  "logSizes": {
+    "gateway": {
+      "MB": 8.1,
+      "lines": 62255
+    },
+    "bus": {
+      "MB": 21.7,
+      "lines": 186765
+    },
+    "core": {
+      "MB": 4.9,
+      "lines": 62255
+    },
+    "modern": {
+      "MB": 27.4,
+      "lines": 62255
+    }
+  },
+  "manual": {
+    "stepsPerTransaction": 4,
+    "systemsAndFormats": "gateway (access log clave=valor), bus (texto con niveles, línea DEBUG), core (ancho fijo por posición), moderno (span OTel)",
+    "machineMs": {
+      "median": 34.0,
+      "p95": 40.31,
+      "max": 40.97
+    },
+    "completeChains": 30
+  },
+  "model": {
+    "queriesPerTransaction": 1,
+    "machineMs": {
+      "median": 1.1,
+      "p95": 1.41,
+      "max": 4.46
+    },
+    "completeTraces": 30
+  },
+  "example": {
+    "cli": "CLI-0b3ca2ab0ab7",
+    "gw": "GW-4002c66ed7cc",
+    "bus": "BUS-fbb894037096",
+    "core": "CORE-1e51e812f5b5",
+    "mod": "MOD-9674fa95ccc1"
+  },
+  "sampledFrom": "últimas 20000 de 62255 transacciones del log",
+  "correlatorWindow": {
+    "transactionsInMemory": 49810,
+    "completeInMemory": 49810
+  },
+  "speedupMedian": 30.9
+}

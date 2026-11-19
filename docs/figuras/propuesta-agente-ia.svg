@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="Helvetica, Arial, sans-serif" fill="#1a1a1a">
+  <title>Propuesta: agente de IA sobre la traza reconstruida</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f5fa8"/>
+    </marker>
+    <style>
+      .h1{font-size:46px;font-weight:bold}
+      .h2{font-size:25px;fill:#555}
+      .box{fill:#eceff3;stroke:#333;stroke-width:2}
+      .kb{fill:#fff;stroke:#555;stroke-width:2}
+      .chip{fill:#eef3fa;stroke:#1f5fa8;stroke-width:1.5}
+      .node{fill:#fff;stroke:#1f5fa8;stroke-width:4}
+      .nt{font-size:34px;font-weight:bold;fill:#1f5fa8}
+      .bt{font-size:27px;font-weight:bold}
+      .tx{font-size:22px;fill:#333}
+      .sm{font-size:20px;fill:#555}
+      .cyc{stroke:#1f5fa8;stroke-width:5;fill:none}
+      .flow{stroke:#333;stroke-width:3;fill:none}
+      .fb{stroke:#777;stroke-width:2.5;fill:none;stroke-dasharray:10 7}
+    </style>
+  </defs>
+  <rect width="1920" height="1080" fill="#fff"/>
+
+  <text class="h1" x="80" y="95">IA sobre la traza reconstruida</text>
+  <text class="h2" x="80" y="140">Ciclo observar – razonar – actuar disparado por el detector · propuesta, sin implementar ni evaluar</text>
+
+  <!-- disparador -->
+  <rect class="box" x="80" y="220" width="380" height="220" rx="10"/>
+  <text class="bt" x="105" y="268">Detector</text>
+  <text class="tx" x="105" y="306">del correlacionador</text>
+  <text class="sm" x="105" y="348">fuente silenciosa,</text>
+  <text class="sm" x="105" y="376">cadena rota o latencia;</text>
+  <text class="sm" x="105" y="410">nombra la capa afectada</text>
+  <path class="flow" d="M462,330 H848" marker-end="url(#a)"/>
+  <text class="tx" x="560" y="316" font-weight="bold">alerta: dispara</text>
+
+  <!-- ciclo -->
+  <path class="cyc" d="M842.6,359.2 A250,250 0 0 0 710.1,588.7" marker-end="url(#b)"/>
+  <path class="cyc" d="M827.5,792 A250,250 0 0 0 1092.5,792" marker-end="url(#b)"/>
+  <path class="cyc" d="M1209.8,588.7 A250,250 0 0 0 1077.4,359.2" marker-end="url(#b)"/>
+
+  <circle class="node" cx="960" cy="330" r="108"/>
+  <text class="nt" x="960" y="342" text-anchor="middle">Observar</text>
+  <circle class="node" cx="743.5" cy="705" r="108"/>
+  <text class="nt" x="743.5" y="717" text-anchor="middle">Razonar</text>
+  <circle class="node" cx="1176.5" cy="705" r="108"/>
+  <text class="nt" x="1176.5" y="717" text-anchor="middle">Actuar</text>
+
+  <text class="tx" x="1095" y="272">trazas incompletas y alertas</text>
+  <text class="tx" x="1095" y="302">de la ventana afectada</text>
+
+  <text class="sm" x="960" y="600" text-anchor="middle">ciclo del agente</text>
+  <text class="tx" x="610" y="660" text-anchor="end">un LLM forma una</text>
+  <text class="tx" x="610" y="690" text-anchor="end">hipótesis de causa</text>
+  <text class="tx" x="610" y="720" text-anchor="end">con el contexto</text>
+  <text class="tx" x="610" y="750" text-anchor="end">recuperado</text>
+
+  <text class="tx" x="1300" y="815">propone la hipótesis</text>
+  <text class="tx" x="1300" y="845">con sus fuentes</text>
+
+  <!-- persona -->
+  <path class="flow" d="M1286,705 H1535" marker-end="url(#a)"/>
+  <rect class="box" x="1540" y="600" width="310" height="210" rx="10" stroke-width="3"/>
+  <text class="bt" x="1565" y="650">Persona</text>
+  <text class="tx" x="1565" y="692">confirma o descarta</text>
+  <text class="tx" x="1565" y="722">la hipótesis</text>
+  <text class="sm" x="1565" y="770">el agente no actúa solo</text>
+
+  <!-- base de conocimiento -->
+  <rect class="kb" x="80" y="880" width="1120" height="150" rx="10"/>
+  <text class="bt" x="105" y="925">Base de conocimiento para RAG</text>
+  <text class="sm" x="530" y="925">(de la capa señalada)</text>
+  <g>
+    <rect class="chip" x="105"  y="950" width="230" height="52" rx="26"/><text class="tx" x="220"  y="984" text-anchor="middle">contrato de log</text>
+    <rect class="chip" x="355"  y="950" width="120" height="52" rx="26"/><text class="tx" x="415"  y="984" text-anchor="middle">ADR</text>
+    <rect class="chip" x="495"  y="950" width="300" height="52" rx="26"/><text class="tx" x="645"  y="984" text-anchor="middle">modelo de amenazas</text>
+    <rect class="chip" x="815"  y="950" width="360" height="52" rx="26"/><text class="tx" x="995"  y="984" text-anchor="middle">incidentes anteriores</text>
+  </g>
+  <path class="flow" d="M560,878 L668,790" marker-end="url(#a)"/>
+  <text class="tx" x="380" y="842" font-weight="bold">recupera (RAG)</text>
+
+  <!-- retroalimentación -->
+  <path class="fb" d="M1695,812 V955 H1205" marker-end="url(#a)"/>
+  <text class="sm" x="1260" y="940">el incidente confirmado alimenta la base</text>
+
+  <text class="sm" x="80" y="1062">Punto de partida: la IA necesita evidencia reunida y confiable; en servicios aislados, esa evidencia es la traza reconstruida.</text>
+</svg>
