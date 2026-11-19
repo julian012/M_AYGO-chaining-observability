@@ -37,7 +37,9 @@
 - [x] `scripts/run_scenarios.sh`: 11 escenarios, evidencia por escenario y series en CloudWatch
 - [x] `scripts/manual_vs_model.py`: 4 `grep` capa por capa frente a `/trace` (local: 12,8 ms frente a 1,0 ms con logs pequeños)
 - [x] Certificado con varias IPs; `GATEWAY_CPUS` configurable (escalado vertical)
-- [ ] Correr las pruebas en AWS (requiere sesión del Learner Lab)
+- [x] Pruebas en AWS (18/19-nov): 11 escenarios con generador aparte; resumen en `evidence/aws-stress-2026-11-18/README.md`
+- [x] Hallazgo y corrección: tras reiniciar con más historia que `MAX_EVENTS`, 0 trazas completas en memoria → evicción por hora del evento (`v0.3.2`); verificado en AWS: 0/1500 → 1500/1500
+- [x] Generador de carga eliminado del stack; instancia de la aplicación detenida
 
 ## Siguiente
 - [x] En AWS: 5 contenedores `healthy`, `ReadonlyRootfs=true`, usuario 10001 (18-nov)
