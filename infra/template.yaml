@@ -46,6 +46,19 @@ Parameters:
     AllowedPattern: '^v\d+\.\d+\.\d+$'
     Description: Versión fijada del plugin docker compose.
 
+  EnableLoadGenerator:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Crea una segunda instancia solo para generar carga (pruebas de estrés). Apágala o elimínala al terminar.
+  LoadGeneratorType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium]
+
+Conditions:
+  CreateLoadGen: !Equals [!Ref EnableLoadGenerator, "true"]
+
 Rules:
   NoOpenToWorld:
     Assertions:
@@ -69,6 +82,65 @@ Resources:
         - { IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS sobre TCP" }
       Tags:
         - { Key: Project, Value: obsproto }
+
+  # ---- Generador de carga (opcional): así la carga no compite por CPU con la pila ----
+  LoadGenSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateLoadGen
+    Properties:
+      GroupDescription: Generador de carga - SSH desde una IP y salida al gateway por la red privada
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref AllowedCidr, Description: "SSH" }
+      SecurityGroupEgress:
+        - { IpProtocol: tcp, FromPort: 8443, ToPort: 8443, DestinationSecurityGroupId: !Ref InstanceSecurityGroup, Description: "Gateway TLS (red privada)" }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: "HTTPS (paquetes, git, CloudWatch)" }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: "HTTP (repositorios de paquetes)" }
+        - { IpProtocol: udp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS" }
+        - { IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 0.0.0.0/0, Description: "DNS sobre TCP" }
+      Tags:
+        - { Key: Project, Value: obsproto }
+
+  GatewayFromLoadGen:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: CreateLoadGen
+    Properties:
+      GroupId: !Ref InstanceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8443
+      ToPort: 8443
+      SourceSecurityGroupId: !Ref LoadGenSecurityGroup
+      Description: Gateway TLS desde el generador de carga (solo ese grupo)
+
+  LoadGenInstance:
+    Type: AWS::EC2::Instance
+    Condition: CreateLoadGen
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref LoadGeneratorType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfileName # PutMetricData hacia CloudWatch y SSM
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref LoadGenSecurityGroup]
+      Monitoring: false
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeType: gp3, VolumeSize: 8, Encrypted: true, DeleteOnTermination: true }
+      Tags:
+        - { Key: Name, Value: obsproto-loadgen }
+        - { Key: Project, Value: obsproto }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Solo el generador (stdlib). Las API keys y el certificado se copian después por SSH, nunca por UserData.
+          set -euxo pipefail
+          dnf install -y git
+          git clone --depth 1 --branch ${RepoRef} ${RepoUrl} /opt/obsproto
+          chown -R ec2-user:ec2-user /opt/obsproto
 
   # ---- Evidencias de pruebas: cifrado, sin acceso publico, solo TLS ----
   EvidenceBucket:
@@ -515,6 +587,12 @@ Outputs:
     Value: !Ref AppInstance
   PublicIp:
     Value: !GetAtt AppInstance.PublicIp
+  PrivateIp:
+    Description: IP privada de la aplicación (el generador de carga llega al gateway por aquí).
+    Value: !GetAtt AppInstance.PrivateIp
+  LoadGenPublicIp:
+    Condition: CreateLoadGen
+    Value: !GetAtt LoadGenInstance.PublicIp
   GatewayUrl:
     Value: !Sub "https://${AppInstance.PublicIp}:8443"
   CorrelatorTunnel:

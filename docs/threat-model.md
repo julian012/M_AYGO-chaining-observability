@@ -41,6 +41,8 @@ disponibilidad del flujo, credenciales (API keys, tokens, llaves AWS del lab).
 8. **Salida a Internet sin restringir por destino** (Trivy AWS-0104): sin NAT ni VPC endpoints (costo, ADR-0002) la instancia sale a `0.0.0.0/0`, aunque solo por 443/80/53. Mejora: VPC endpoints o proxy de salida con lista de dominios.
 9. **S3 cifrado con llave de AWS, no con CMK** (Trivy AWS-0132): SSE-S3 + bloqueo público + TLS obligatorio. Mejora: SSE-KMS con CMK y rotación si los datos dejaran de ser sintéticos.
 
+10. **Generador de carga (solo durante las pruebas):** segunda instancia con SSH desde una IP y salida al gateway únicamente por su grupo de seguridad. Recibe solo `API_KEYS` (no los tokens internos ni el del correlacionador), copiadas por SSH, nunca por `UserData`. Se elimina al terminar (`EnableLoadGenerator=false`).
+
 Trivy AWS-0028 (IMDSv2) es un falso positivo: la plantilla exige tokens y `HopLimit: 1`. Las tres excepciones están en `.trivyignore` con su justificación.
 
 ## Datos

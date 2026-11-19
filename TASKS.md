@@ -31,6 +31,14 @@
 - [x] Generador publica series por escenario (`--cw-scenario`); monitor del host como servicio systemd
 - [x] Demostración en AWS: escenario `aws-demo-c20`, 600/600 trazas completas, publicado en CloudWatch
 
+## Preparación de las pruebas de estrés (18-nov, noche)
+- [x] Generador de carga opcional en la plantilla (`EnableLoadGenerator`), por red privada, con mínimo privilegio
+- [x] Generador: modo por tiempo (`--duration`), `--ids-out` / `--verify-ids` (verificación en la instancia de la app), `--verify-last`, capas faltantes por traza
+- [x] `scripts/run_scenarios.sh`: 11 escenarios, evidencia por escenario y series en CloudWatch
+- [x] `scripts/manual_vs_model.py`: 4 `grep` capa por capa frente a `/trace` (local: 12,8 ms frente a 1,0 ms con logs pequeños)
+- [x] Certificado con varias IPs; `GATEWAY_CPUS` configurable (escalado vertical)
+- [ ] Correr las pruebas en AWS (requiere sesión del Learner Lab)
+
 ## Siguiente
 - [x] En AWS: 5 contenedores `healthy`, `ReadonlyRootfs=true`, usuario 10001 (18-nov)
 - [x] Repo publicado en https://github.com/julian012/M_AYGO-chaining-observability, CI en verde (5 jobs) y tag `v0.1.0` (18-nov)

@@ -23,6 +23,7 @@ services:
   gateway:
     <<: *hardened
     command: ["python", "-m", "obsproto.gateway"]
+    cpus: ${GATEWAY_CPUS:-0.5} # escalado vertical en las pruebas (0.5 por defecto, como el resto)
     environment:
       <<: *env-common
       API_KEYS: ${API_KEYS:?ejecuta `make setup` para generar .env}
