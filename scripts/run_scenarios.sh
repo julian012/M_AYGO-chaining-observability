@@ -20,6 +20,9 @@ REF="${REF:-$(git describe --tags --abbrev=0)}"      # versión que se despliega
 GAP="${GAP:-20}"                                   # segundos entre escenarios (separa las series en el tablero)
 OUT="${OUT:-evidence/aws-stress-$(date +%Y-%m-%d)}"
 SSH=(ssh -i "$KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30)
+# Directorio de trabajo propio (no /tmp directo): en /tmp, root no puede sobrescribir archivos de ec2-user
+# (fs.protected_regular en directorios con sticky bit).
+W="${W:-/tmp/obsproto-run}"
 mkdir -p "$OUT"
 
 app() { "${SSH[@]}" -n "ec2-user@$APP" "cd /opt/obsproto && sudo bash -c $(printf '%q' "$1")"; }
@@ -40,14 +43,14 @@ run() {
   local name="$1" gen="$2" ver="${3:-}"
   log "escenario $name: $gen"
   lg "python3 scripts/generate_load.py --url https://$APP_PRIV:8443 --cacert certs/server.crt --cw-scenario aws-$name \
-      --ids-out /tmp/$name.ids --out /tmp/$name.json $gen > /dev/null"
-  "${SSH[@]}" "ec2-user@$LOADGEN" "cat /tmp/$name.ids" | "${SSH[@]}" "ec2-user@$APP" "cat > /tmp/$name.ids"
-  "${SSH[@]}" "ec2-user@$LOADGEN" "cat /tmp/$name.json" | "${SSH[@]}" "ec2-user@$APP" "cat > /tmp/$name.json"
+      --ids-out $W/$name.ids --out $W/$name.json $gen > /dev/null"
+  "${SSH[@]}" "ec2-user@$LOADGEN" "cat $W/$name.ids" | "${SSH[@]}" "ec2-user@$APP" "cat > $W/$name.ids"
+  "${SSH[@]}" "ec2-user@$LOADGEN" "cat $W/$name.json" | "${SSH[@]}" "ec2-user@$APP" "cat > $W/$name.json"
   if [[ "$ver" != "skip" ]]; then
-    app "python3 scripts/generate_load.py --verify-ids /tmp/$name.ids --summary /tmp/$name.json \
-         --correlator http://127.0.0.1:9100 --cw-scenario aws-$name --out /tmp/$name.json $ver > /dev/null"
+    app "python3 scripts/generate_load.py --verify-ids $W/$name.ids --summary $W/$name.json \
+         --correlator http://127.0.0.1:9100 --cw-scenario aws-$name --out $W/$name.json $ver > /dev/null"
   fi
-  "${SSH[@]}" -n "ec2-user@$APP" "cat /tmp/$name.json" > "$OUT/$name.json"
+  "${SSH[@]}" -n "ec2-user@$APP" "cat $W/$name.json" > "$OUT/$name.json"
   python3 - "$OUT/$name.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1])); c = d.get("correlation") or {}; l = d.get("latencyMs") or {}
@@ -93,8 +96,8 @@ s_gateway_1cpu() {
 s_sustained() { run sustained-c50-10min "--duration 600 --concurrency 50" "--verify-last 3000"; }
 s_manual_vs_model() {
   log "manual frente al modelo (con los logs grandes de la carga sostenida)"
-  app "python3 scripts/manual_vs_model.py --samples 30 --out /tmp/manual-vs-model.json > /dev/null"
-  "${SSH[@]}" -n "ec2-user@$APP" "cat /tmp/manual-vs-model.json" > "$OUT/manual-vs-model.json"
+  app "python3 scripts/manual_vs_model.py --samples 30 --out $W/manual-vs-model.json > /dev/null"
+  "${SSH[@]}" -n "ec2-user@$APP" "cat $W/manual-vs-model.json" > "$OUT/manual-vs-model.json"
   python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print("  -> manual",d["manual"]["machineMs"],"· modelo",d["model"]["machineMs"],"· x",d["speedupMedian"],"· logs",d["logSizes"])' "$OUT/manual-vs-model.json"
 }
 s_fault() {
@@ -112,17 +115,17 @@ s_bus_outage() {
   log "escenario $name: 120 s de carga; el bus se detiene en el segundo 40 y vuelve en el 70"
   "${SSH[@]}" -n "ec2-user@$LOADGEN" "cd /opt/obsproto && python3 scripts/generate_load.py --url https://$APP_PRIV:8443 \
       --cacert certs/server.crt --cw-scenario aws-$name --duration 120 --concurrency 20 --timeout 5 \
-      --ids-out /tmp/$name.ids --out /tmp/$name.json > /dev/null" &
+      --ids-out $W/$name.ids --out $W/$name.json > /dev/null" &
   local bg=$!
   sleep 40; local stop_at; stop_at=$(date -u +%FT%TZ); app "docker compose stop bus >/dev/null 2>&1"
   sleep 30; local start_at; start_at=$(date -u +%FT%TZ); app "docker compose start bus >/dev/null 2>&1"
   wait "$bg"
   wait_healthy
-  "${SSH[@]}" "ec2-user@$LOADGEN" "cat /tmp/$name.ids" | "${SSH[@]}" "ec2-user@$APP" "cat > /tmp/$name.ids"
-  "${SSH[@]}" "ec2-user@$LOADGEN" "cat /tmp/$name.json" | "${SSH[@]}" "ec2-user@$APP" "cat > /tmp/$name.json"
-  app "python3 scripts/generate_load.py --verify-ids /tmp/$name.ids --summary /tmp/$name.json \
-       --correlator http://127.0.0.1:9100 --cw-scenario aws-$name --out /tmp/$name.json > /dev/null"
-  "${SSH[@]}" -n "ec2-user@$APP" "cat /tmp/$name.json" > "$OUT/$name.json"
+  "${SSH[@]}" "ec2-user@$LOADGEN" "cat $W/$name.ids" | "${SSH[@]}" "ec2-user@$APP" "cat > $W/$name.ids"
+  "${SSH[@]}" "ec2-user@$LOADGEN" "cat $W/$name.json" | "${SSH[@]}" "ec2-user@$APP" "cat > $W/$name.json"
+  app "python3 scripts/generate_load.py --verify-ids $W/$name.ids --summary $W/$name.json \
+       --correlator http://127.0.0.1:9100 --cw-scenario aws-$name --out $W/$name.json > /dev/null"
+  "${SSH[@]}" -n "ec2-user@$APP" "cat $W/$name.json" > "$OUT/$name.json"
   python3 - "$OUT/$name.json" "$stop_at" "$start_at" <<'PY'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p)); d["outage"] = {"busStoppedAt": sys.argv[2], "busStartedAt": sys.argv[3]}
@@ -137,6 +140,9 @@ s_no_correlator() {
   app "docker compose start correlator >/dev/null 2>&1"
   wait_healthy
 }
+
+"${SSH[@]}" -n "ec2-user@$APP" "mkdir -p $W"
+"${SSH[@]}" -n "ec2-user@$LOADGEN" "mkdir -p $W"
 
 ALL=(setup warmup normal rest-only steps gateway-1cpu sustained manual-vs-model fault bus-info bus-outage no-correlator)
 for s in "${@:-${ALL[@]}}"; do
