@@ -3,17 +3,20 @@
 Propiedades buscadas (cada una tiene prueba en tests/test_graph.py):
 - independiente del orden de llegada de los eventos (los hijos terminan antes que los padres),
 - idempotente ante duplicados,
-- memoria acotada (evicción FIFO),
+- memoria acotada: al llenarse se descarta el evento MÁS VIEJO SEGÚN SU HORA, no el primero que llegó.
+  Así, al releer logs a ritmos distintos tras un reinicio, se conservan completas las transacciones recientes
+  (hallazgo de las pruebas de estrés en AWS; ver test_replay_at_uneven_speeds_keeps_recent_traces),
 - una cadena rota se informa como traza incompleta (no se inventan enlaces).
 """
 
 from __future__ import annotations
 
 import hashlib
+import heapq
+import itertools
 import threading
-from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from obsproto.correlator.parsers import LAYER_ORDER, Event
 
@@ -57,7 +60,8 @@ class IdGraph:
         self._events: Dict[str, Event] = {}
         self._parent_of: Dict[str, str] = {}
         self._children: Dict[str, Set[str]] = {}
-        self._order: Deque[str] = deque()
+        self._by_time: List[Tuple[float, int, str]] = []  # heap (hora del evento, orden de llegada, id)
+        self._seq = itertools.count()
         self._lock = threading.Lock()
 
     def __len__(self) -> int:
@@ -71,9 +75,9 @@ class IdGraph:
             self._events[ev.id] = ev
             self._parent_of[ev.id] = ev.parent_id
             self._children.setdefault(ev.parent_id, set()).add(ev.id)
-            self._order.append(ev.id)
-            while len(self._order) > self.max_events:
-                self._evict(self._order.popleft())
+            heapq.heappush(self._by_time, (ev.end_ts, next(self._seq), ev.id))
+            while len(self._by_time) > self.max_events:
+                self._evict(heapq.heappop(self._by_time)[2])
             return True
 
     def _evict(self, event_id: str) -> None:

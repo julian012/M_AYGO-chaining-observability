@@ -81,7 +81,7 @@ def test_unknown_id_returns_none():
 def test_eviction_bounds_memory():
     g = IdGraph(max_events=8)
     for i in range(1, 6):
-        for ev in chain(str(i)):
+        for ev in chain(str(i), t=1000.0 + i):  # cada transacción con su hora; se descartan las más viejas
             g.add(ev)
     assert len(g) == 8
     assert g.trace("CLI-000000000001") is None or not g.trace("CLI-000000000001").complete
@@ -110,3 +110,28 @@ def test_core_failure_does_not_expect_modern_layer():
         g.add(ev if ev.layer != "core" else Event("core", ev.id, ev.parent_id, ev.end_ts, ev.duration_ms, "91"))
     tr = g.trace(CLI)
     assert tr is not None and tr.complete
+
+
+def test_replay_at_uneven_speeds_keeps_recent_traces():
+    """Reinicio del correlacionador con más historia que MAX_EVENTS (hallazgo de las pruebas en AWS).
+
+    Al releer los logs, cada archivo avanza a un ritmo distinto (1 MB del core son muchos más registros
+    que 1 MB de spans del moderno). Con evicción por orden de llegada se botaban eventos recientes de unas
+    capas mientras seguían entrando eventos viejos de otras, y no quedaba ninguna traza completa.
+    La evicción por hora del evento conserva las transacciones más recientes completas.
+    """
+    n, keep = 400, 100  # 400 transacciones de historia; caben 100 (4 eventos cada una)
+    chains = [chain(f"{i:x}", t=1000.0 + i) for i in range(1, n + 1)]
+    by_layer = {layer: [c[k] for c in chains] for k, layer in enumerate(("modern", "core", "bus", "gateway"))}
+    speed = {"core": 40, "gateway": 20, "bus": 8, "modern": 5}  # eventos por lectura, como en AWS
+    g = IdGraph(max_events=4 * keep)
+    pos = {layer: 0 for layer in speed}
+    while any(pos[la] < n for la in speed):
+        for layer, step in speed.items():
+            for ev in by_layer[layer][pos[layer] : pos[layer] + step]:
+                g.add(ev)
+            pos[layer] = min(n, pos[layer] + step)
+    assert len(g) == 4 * keep
+    recent = [f"CLI-{i:x}".replace("CLI-", "CLI-" + "0" * (12 - len(f"{i:x}"))) for i in range(n - keep // 2, n + 1)]
+    assert all(g.trace(cli) is not None and g.trace(cli).complete for cli in recent)
+    assert g.completeness()["complete"] >= keep - 1

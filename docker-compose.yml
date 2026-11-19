@@ -89,6 +89,7 @@ services:
   correlator:
     <<: *hardened
     command: ["python", "-m", "obsproto.correlator.server"]
+    mem_limit: ${CORRELATOR_MEM:-384m} # grafo lleno (200 000 eventos) ≈ 150 MB + intérprete; en AWS se midieron 190 MB con 256 MB de límite
     environment:
       CORRELATOR_TOKEN: ${CORRELATOR_TOKEN:?ejecuta `make setup` para generar .env}
       PORT: "9100"

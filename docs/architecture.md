@@ -52,7 +52,7 @@ Todos los nombres son genéricos; los datos son sintéticos.
 - Una cadena rota se reporta como **traza incompleta** con las capas faltantes; nunca se inventan enlaces.
 - Un fallo del core (`status != 00`) no cuenta como capa faltante de `modern` (no se invoca por diseño).
 - Nunca une por hilo ni por tiempo: si una fuente no deja el par de IDs (p. ej. el bus en INFO), la traza se reporta incompleta.
-- Memoria acotada (`MAX_EVENTS`, evicción FIFO).
+- Memoria acotada (`MAX_EVENTS`): al llenarse descarta el evento más viejo **según su hora**, no el primero que llegó. Así, al reiniciar y releer logs a ritmos distintos, las transacciones recientes quedan completas (hallazgo de las pruebas en AWS).
 
 ## Despliegue
 - **Local:** `docker compose` (ver README).
