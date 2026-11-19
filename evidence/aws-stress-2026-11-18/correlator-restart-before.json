@@ -1,0 +1,12 @@
+{
+  "correlation": {
+    "checked": 1500,
+    "found": 1500,
+    "complete": 0,
+    "incompleteByMissingLayers": {
+      "core+modern": 1500
+    },
+    "completePct": 0.0,
+    "sampled": "all"
+  }
+}

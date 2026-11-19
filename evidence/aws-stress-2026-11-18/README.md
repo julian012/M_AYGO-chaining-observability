@@ -47,4 +47,16 @@ Tras `no-correlator`, el correlacionador volvió a leer los logs desde el inicio
 con **0 trazas completas en memoria** (`/stats`: 35 904 transacciones, 0 completas). Causa: los cuatro archivos avanzan a ritmos distintos
 (1 MB por lectura = ~13 000 registros del core pero ~2 400 spans del moderno) y la evicción es por orden de llegada, así que se descartan
 eventos recientes de unas capas mientras siguen entrando eventos viejos de otras. En operación continua no ocurre (100 % verificado en la
-carga sostenida). Ver la corrección en el commit siguiente.
+carga sostenida).
+
+**Corrección (`v0.3.2`):** el grafo descarta el evento más viejo **según su hora**, no el primero que llegó (prueba de regresión
+`test_replay_at_uneven_speeds_keeps_recent_traces`). Verificación en AWS con los mismos logs (~437 000 eventos, relectura en 111 s):
+
+| | Antes (código viejo) | Después (`v0.3.2`) |
+|---|---|---|
+| 1500 transacciones de `no-correlator-c20` | 0/1500 completas (faltan `core+modern`) | **1500/1500** completas |
+| `/stats` tras la relectura | 0 de 35 904 en memoria | 48 311 de 53 224 (90,8 %) |
+| Memoria del correlacionador | — | 201 MB (límite subido a 384 MB) |
+
+Las 4913 incompletas tras la corrección = 3909 de `bus-outage` + 1000 de `bus-info` (incompletas por diseño) + 4 en el borde de la
+ventana de memoria. Evidencia: `correlator-restart-before.json` y `correlator-restart-after.json`.
