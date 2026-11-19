@@ -61,9 +61,10 @@ la red privada al gateway (el grupo del generador es el único con acceso a `844
 la instancia de la aplicación, porque el correlacionador solo escucha en loopback.
 
 ```bash
-# 1) Crear el generador (agrega 3 recursos; no toca la instancia de la aplicación: revisa el change set)
+# 1) Crear el generador (agrega 3 recursos). OJO: pasa AppAmiId con la AMI actual; si AWS publicó una AL2023 nueva,
+#    sin ese parámetro el change set REEMPLAZA la instancia de la app. Revisa siempre el change set (--no-execute-changeset).
 aws cloudformation deploy --stack-name obsproto --template-file infra/template.yaml \
-  --parameter-overrides EnableLoadGenerator=true VpcId=… SubnetId=… AllowedCidr=$MYIP \
+  --parameter-overrides EnableLoadGenerator=true AppAmiId=<AMI actual de la app> VpcId=… SubnetId=… AllowedCidr=$MYIP \
                         RepoUrl=https://github.com/julian012/M_AYGO-chaining-observability.git RepoRef=v0.1.0
 # 2) Correr todos los escenarios (≈ 35 min); o solo algunos: … run_scenarios.sh setup warmup steps
 APP=<PublicIp> APP_PRIV=<PrivateIp> LOADGEN=<LoadGenPublicIp> scripts/run_scenarios.sh

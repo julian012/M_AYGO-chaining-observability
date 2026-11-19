@@ -31,6 +31,13 @@ Parameters:
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  AppAmiId:
+    Type: String
+    Default: ""
+    AllowedPattern: '^(ami-[0-9a-f]{8,17})?$'
+    Description: >-
+      AMI fija de la instancia de la aplicación. Vacío = la última AL2023. En una actualización pasa la AMI actual,
+      porque si AWS publicó una nueva el stack REEMPLAZARÍA la instancia (nueva IP, sin datos).
   RepoUrl:
     Type: String
     AllowedPattern: '^https://[A-Za-z0-9./_-]+\.git$'
@@ -58,6 +65,7 @@ Parameters:
 
 Conditions:
   CreateLoadGen: !Equals [!Ref EnableLoadGenerator, "true"]
+  PinAppAmi: !Not [!Equals [!Ref AppAmiId, ""]]
 
 Rules:
   NoOpenToWorld:
@@ -185,7 +193,7 @@ Resources:
   AppInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref LatestAmiId
+      ImageId: !If [PinAppAmi, !Ref AppAmiId, !Ref LatestAmiId]
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
       IamInstanceProfile: !Ref InstanceProfileName
