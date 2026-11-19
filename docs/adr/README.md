@@ -9,5 +9,6 @@ Formato: contexto → decisión → alternativas → consecuencias. Una decisió
 | [0003](0003-stdlib-minimal.md) | Solo biblioteca estándar en runtime | Aceptada |
 | [0004](0004-security-baseline.md) | Línea base de seguridad | Aceptada |
 | [0005](0005-heterogeneous-sources.md) | Protocolos y fuentes de telemetría heterogéneos | Aceptada |
+| [0006](0006-core-tracenumber-link.md) | Eslabón bus → core con tracenumber (core sin ID del bus) | Aceptada |
 
 Pendientes: backend de trazas (Tempo vs. Jaeger vs. X-Ray) · estrategia de muestreo · persistencia del grafo (en memoria vs. DynamoDB).

@@ -25,8 +25,13 @@ Namespace de la transacción: `urn:obsproto:txn:v1`. Cuerpo: `Transaction` con e
 | `account` | 28–47 | 20 | PIC X(20): dígitos alineados a la izquierda, relleno con espacios |
 | `amount` | 48–59 | 12 | centavos, ceros a la izquierda |
 
-**Trama de respuesta (26 caracteres):** `mti` = `0210` (4) · `bus_id` eco (20) · `rc` (2): `00` OK, `91` fallo.
+**Trama de respuesta (38 caracteres):** `mti` = `0210` (4) · `bus_id` eco (20, vacío si no se envió) · `rc` (2): `00` OK,
+`91` fallo · `tracenumber` (12): consecutivo del movimiento en el core, ceros si no aplica.
 El resultado del core va en `rc`; la respuesta HTTP es siempre 200 si la trama es válida.
+
+**Modo `CORE_LINK=tracenumber` (core tipo Stratus, [ADR-0006](adr/0006-core-tracenumber-link.md)):** la solicitud lleva el
+campo `bus_id` vacío. El core asigna un consecutivo de 12 dígitos que nunca se repite, lo usa como su ID (`CORE-<tracenumber>`),
+lo registra **sin ID recibido** y lo devuelve en la respuesta.
 
 ## 2. Logs, uno por tipo de fuente
 
@@ -46,6 +51,17 @@ El resultado del core va en `rc`; la respuesta HTTP es siempre 200 si la trama e
 El par completo solo está en la línea **DEBUG** `mapped`. `rc`: `00` OK, `91` fallo del core, `TO` timeout o caída,
 `XX` trama de respuesta inválida (los no `00` se registran como `ERROR`). Nivel con `BUS_LOG_LEVEL` (por defecto `DEBUG`).
 
+**Perfil `BUS_INFO_PROFILE=summary`** (sin DEBUG, como en producción): una sola línea INFO por mensaje con el par completo y,
+con un core tipo Stratus, el tracenumber que devolvió según `BUS_TRACE_LOG`:
+```
+<ts> INFO  [ESB.TransactionRoute] thread=T43712 reply msgId=BUS-… upstream=GW-… rc=00 trace=795070117166 dur_ms=32       (clear)
+                                                                              … rc=00 trace=tok_11f558a938873f72 dur_ms=37  (token)
+                                                                              … rc=00 trace=********6178 dur_ms=29          (mask, 4 dígitos)
+                                                                              … rc=00 dur_ms=31                             (none)
+```
+`token` = `tok_` + 16 hex de HMAC-SHA256(`TRACE_TOKEN_KEY`, tracenumber). El bus escribe además `truth.log` (par real
+bus → tracenumber) **solo para evaluar** uniones falsas; el correlacionador nunca lo lee.
+
 ### Core legacy: ancho fijo (81 caracteres + `\n`)
 Definido una sola vez en `CORE_LAYOUT` (`src/obsproto/common.py`); el simulador y el parser comparten la tupla.
 
@@ -53,7 +69,7 @@ Definido una sola vez en `CORE_LAYOUT` (`src/obsproto/common.py`); el simulador 
 |---|---|---|---|
 | `ts` | 0–16 | 17 | `YYYYMMDDHHMMSSmmm` UTC |
 | `core_id` | 17–36 | 20 | `CORE-<12 hex>` alineado a la izquierda |
-| `parent_id` | 37–56 | 20 | `BUS-<12 hex>` alineado a la izquierda |
+| `parent_id` | 37–56 | 20 | `BUS-<12 hex>` alineado a la izquierda; **vacío** con `CORE_LINK=tracenumber` |
 | `txn` | 57–60 | 4 | `TRF `, `PAY `, `BAL ` |
 | `amount` | 61–72 | 12 | centavos, ceros a la izquierda |
 | `status` | 73–74 | 2 | `00` OK · `91` fallo simulado |

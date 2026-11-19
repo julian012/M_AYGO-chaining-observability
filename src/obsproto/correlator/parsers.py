@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
+from obsproto import tracelink
 from obsproto.common import CORE_LAYOUT, CORE_RECORD_LEN, valid_id
 
 LAYER_ORDER = ("gateway", "bus", "core", "modern")
@@ -37,6 +38,18 @@ class Event:
     duration_ms: int
     status: str
     ext_trace_id: Optional[str] = None  # traceId OTel propio de la fuente, si lo tiene
+
+
+@dataclass(frozen=True)
+class TraceRef:
+    """El bus registró el tracenumber que le devolvió el core (en claro, token o máscara).
+
+    No es un eslabón todavía: el correlacionador lo une con el registro del core que corresponda.
+    """
+
+    bus_id: str
+    value: str
+    ts: float
 
 
 def _ids_consistent(layer: str, own: str, parent: str) -> bool:
@@ -77,13 +90,16 @@ def parse_gateway_line(line: str) -> Optional[Event]:
 #   INFO  … received SOAP Submit upstream=GW-…              (ID recibido, sin ID propio)
 #   DEBUG … mapped msgId=BUS-… upstream=GW-… out=CORE.TRAMA   (el PAR completo: solo en DEBUG)
 #   INFO  … reply msgId=BUS-… rc=00 dur_ms=44                (ID propio, resultado y duración)
+# Perfil "summary" (sin DEBUG): una sola línea INFO por mensaje, con el par completo:
+#   INFO  … reply msgId=BUS-… upstream=GW-… rc=00 trace=<tracenumber del core según la política> dur_ms=44
 # --------------------------------------------------------------------------- #
 _ID = r"[A-Z]{2,4}-[0-9a-f]{12}"
 _BUS_LINE = re.compile(
     r"^(?P<ts>\S+) (?P<lvl>DEBUG|INFO|WARN|ERROR) +\[ESB\.TransactionRoute\] thread=T\d{5} "
     rf"(?:received SOAP Submit upstream=(?P<rx>{_ID})"
     rf"|mapped msgId=(?P<mid>{_ID}) upstream=(?P<mup>{_ID}) out=CORE\.TRAMA"
-    rf"|reply msgId=(?P<rid>{_ID}) rc=(?P<rc>[0-9A-Z]{{2}}) dur_ms=(?P<dur>\d{{1,7}}))\Z"
+    rf"|reply msgId=(?P<rid>{_ID})(?: upstream=(?P<rup>{_ID}))? rc=(?P<rc>[0-9A-Z]{{2}})"
+    rf"(?: trace=(?P<trace>[0-9a-z_*]{{1,20}}))? dur_ms=(?P<dur>\d{{1,7}}))\Z"
 )
 
 
@@ -110,7 +126,7 @@ class BusLogParser:
         while len(d) > self.max_pending:
             d.popitem(last=False)
 
-    def __call__(self, line: str) -> Optional[List[Event]]:
+    def __call__(self, line: str) -> Optional[List[object]]:
         if not line or len(line) > MAX_LINE:
             return None
         m = _BUS_LINE.match(line)
@@ -135,8 +151,22 @@ class BusLogParser:
             own = m["rid"]
             if not valid_id(own, "BUS"):
                 return None
+            out: List[object] = []
+            if m["trace"]:
+                if tracelink.kind(m["trace"]) is None:
+                    return None
+                out.append(TraceRef(own, m["trace"], ts))
+            if m["rup"]:  # perfil summary: el par viene en la misma línea INFO
+                if not valid_id(m["rup"], "GW"):
+                    return None
+                out.append(Event("bus", own, m["rup"], ts, int(m["dur"]), m["rc"]))
+                return out
             self._reply[own] = (ts, int(m["dur"]), m["rc"])
             self._bound(self._reply)
+            if own in self._parent:
+                end_ts, dur, rc = self._reply.pop(own)
+                out.append(Event("bus", own, self._parent.pop(own), end_ts, dur, rc))
+            return out
         if own in self._parent and own in self._reply:
             end_ts, dur, rc = self._reply.pop(own)
             return [Event("bus", own, self._parent.pop(own), end_ts, dur, rc)]
@@ -159,7 +189,8 @@ def parse_core_line(line: str) -> Optional[Event]:
         ts = datetime.strptime(fields["ts"][:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
         end_ts = ts.timestamp() + int(fields["ts"][14:17]) / 1000
         core_id, parent = fields["core_id"].strip(), fields["parent_id"].strip()
-        if not _ids_consistent("core", core_id, parent):
+        # Core tipo Stratus (CORE_LINK=tracenumber): no sabe quién lo llamó y el campo queda vacío.
+        if not (_ids_consistent("core", core_id, parent) or (parent == "" and valid_id(core_id, "CORE"))):
             return None
         if not (fields["amount"].isdigit() and fields["status"].isdigit() and fields["dur_ms"].isdigit()):
             return None

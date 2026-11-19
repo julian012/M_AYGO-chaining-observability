@@ -15,7 +15,7 @@ import hashlib
 import heapq
 import itertools
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Set, Tuple
 
 from obsproto.correlator.parsers import LAYER_ORDER, Event
@@ -73,11 +73,26 @@ class IdGraph:
             if ev.id in self._events:
                 return False
             self._events[ev.id] = ev
-            self._parent_of[ev.id] = ev.parent_id
-            self._children.setdefault(ev.parent_id, set()).add(ev.id)
+            if ev.parent_id:  # un core tipo Stratus no sabe quién lo llamó: queda sin padre hasta que se una
+                self._parent_of[ev.id] = ev.parent_id
+                self._children.setdefault(ev.parent_id, set()).add(ev.id)
             heapq.heappush(self._by_time, (ev.end_ts, next(self._seq), ev.id))
             while len(self._by_time) > self.max_events:
                 self._evict(heapq.heappop(self._by_time)[2])
+            return True
+
+    def link(self, child_id: str, parent_id: str) -> bool:
+        """Agrega un eslabón que no venía en el evento del hijo (p. ej. bus -> core por tracenumber).
+
+        Solo se aplica a un hijo presente y sin padre: nunca reemplaza un eslabón existente.
+        """
+        with self._lock:
+            ev = self._events.get(child_id)
+            if ev is None or ev.parent_id:
+                return False
+            self._events[child_id] = replace(ev, parent_id=parent_id)
+            self._parent_of[child_id] = parent_id
+            self._children.setdefault(parent_id, set()).add(child_id)
             return True
 
     def _evict(self, event_id: str) -> None:

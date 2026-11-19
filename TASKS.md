@@ -41,6 +41,13 @@
 - [x] Hallazgo y corrección: tras reiniciar con más historia que `MAX_EVENTS`, 0 trazas completas en memoria → evicción por hora del evento (`v0.3.2`); verificado en AWS: 0/1500 → 1500/1500
 - [x] Generador de carga eliminado del stack; instancia de la aplicación detenida
 
+## Core sin ID del bus: tracenumber tipo Stratus (19-nov, ADR-0006)
+- [x] `CORE_LINK=tracenumber`, perfil `summary` del bus y políticas `BUS_TRACE_LOG` (clear, token, mask, none)
+- [x] `CoreLinker`: unión determinista (claro, token) o por máscara solo con candidato único; nunca adivina
+- [x] Verdad de referencia (`truth.log`) y `scripts/eval_core_link.py` para medir uniones falsas
+- [x] Experimento local (`scripts/core_link_experiment.py`): claro/token/mask4 100 %, mask3 20 %, mask2 0 %, none 0 %; 0 falsas
+- [ ] (Opcional) repetir en AWS
+
 ## Siguiente
 - [x] En AWS: 5 contenedores `healthy`, `ReadonlyRootfs=true`, usuario 10001 (18-nov)
 - [x] Repo publicado en https://github.com/julian012/M_AYGO-chaining-observability, CI en verde (5 jobs) y tag `v0.1.0` (18-nov)

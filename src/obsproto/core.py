@@ -1,13 +1,18 @@
 """Capa 3 – Core legacy (stand-in genérico de un core COBOL no modificable).
 
-Entrada: **trama de ancho fijo** (``POST /trama``); el ID del bus viene en una posición de la trama,
-no en un header. Salida: trama de respuesta con código ``rc``.
+Entrada: **trama de ancho fijo** (``POST /trama``). Dos modos (``CORE_LINK``):
+  - ``frame``: el ID del bus viene en las posiciones 4-23 y el core lo registra como "ID recibido".
+  - ``tracenumber``: como un core tipo Stratus, NO recibe el ID del bus. Asigna a cada movimiento un
+    consecutivo que nunca se repite (el tracenumber), lo registra como su ID y lo devuelve en la respuesta.
+    El eslabón bus -> core ya no existe en el log del core: solo puede salir del log del bus.
+Salida: trama de respuesta con el código ``rc`` y el tracenumber.
 Log: solo un registro de texto plano de ANCHO FIJO (ver docs/log-formats.md), sin niveles,
 sin nombres de campo y sin contexto de traza. Permite inyectar latencia y fallos.
 """
 
 from __future__ import annotations
 
+import itertools
 import random
 import threading
 import time
@@ -22,7 +27,10 @@ LOG_PATH = env("LOG_FILE", "/var/log/app/core.log")
 FAULT_RATE = float(env("FAULT_RATE", "0.0"))  # probabilidad 0..1 de fallo simulado
 LATENCY_MIN_MS = int(env("LATENCY_MIN_MS", "5"))
 LATENCY_MAX_MS = int(env("LATENCY_MAX_MS", "40"))
+CORE_LINK = env("CORE_LINK", "frame")
 _LOCK = threading.Lock()
+# Consecutivo que no se repite ni tras un reinicio: arranca en el reloj en ms (12 dígitos) y suma 1 por movimiento.
+_TRACE = itertools.count(int(time.time() * 1000) % 10**12)
 _FH = open(LOG_PATH, "a", buffering=1, encoding="ascii", errors="replace")
 
 
@@ -31,9 +39,17 @@ class CoreHandler(BaseHandler):
         if method != "POST" or path != "/trama":
             raise HttpError(404, "not_found")
         self.require_internal()
-        bus_id, body = parse_trama_request(self.read_raw())
+        bus_id, body = parse_trama_request(self.read_raw(), allow_blank_id=CORE_LINK == "tracenumber")
+        if CORE_LINK != "tracenumber" and bus_id is None:
+            raise HttpError(400, "invalid_trama")
         txn = validate_txn(body)
-        core_id = new_id("CORE")
+        tracenumber = 0
+        if CORE_LINK == "tracenumber":
+            with _LOCK:
+                tracenumber = next(_TRACE)
+            core_id = f"CORE-{tracenumber:012d}"  # el tracenumber ES el ID del core
+        else:
+            core_id = new_id("CORE")
         start = time.monotonic()
         time.sleep(random.uniform(LATENCY_MIN_MS, max(LATENCY_MIN_MS, LATENCY_MAX_MS)) / 1000)  # noqa: S311
 
@@ -50,7 +66,7 @@ class CoreHandler(BaseHandler):
         record = format_core_record(
             datetime.now(timezone.utc),
             core_id,
-            bus_id,
+            bus_id or "",  # en modo tracenumber el core no sabe quién lo llamó
             str(txn["type"]),
             int(txn["amount_cents"]),  # type: ignore[arg-type]
             "91" if failed else "00",
@@ -59,7 +75,7 @@ class CoreHandler(BaseHandler):
         with _LOCK:
             _FH.write(record + "\n")
         # Como un core real, responde por la trama (rc), no con un código HTTP de error.
-        self.send_body(200, trama_response(bus_id, "91" if failed else "00"), TRAMA_CONTENT_TYPE)
+        self.send_body(200, trama_response(bus_id, "91" if failed else "00", tracenumber), TRAMA_CONTENT_TYPE)
 
 
 if __name__ == "__main__":

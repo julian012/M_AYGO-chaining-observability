@@ -6,7 +6,9 @@ el ID de la capa anterior viaja en un lugar distinto:
   canal móvil/web  -> gateway : REST/JSON      ID del cliente en el header ``X-Client-Id``
   canal de tercero -> gateway : SOAP 1.1/XML   ID del cliente en ``soapenv:Header/txn:ClientRequestId``
   gateway          -> bus     : SOAP 1.1/XML   ID del gateway en ``soapenv:Header/wsa:MessageID``
-  bus              -> core    : trama de ancho fijo (estilo copybook); ID del bus en las posiciones 4-23
+  bus              -> core    : trama de ancho fijo (estilo copybook); ID del bus en las posiciones 4-23,
+                                o vacías con CORE_LINK=tracenumber: el core (tipo Stratus) no recibe el ID del bus,
+                                asigna su propio consecutivo (tracenumber) y lo devuelve en la respuesta
   core             -> moderno : REST/JSON      ID del core en el header ``X-Upstream-Id``
 
 Seguridad del XML: el cuerpo es entrada no confiable. Se limita el tamaño, se rechaza cualquier
@@ -127,8 +129,9 @@ TRAMA_REQ_LAYOUT = (
 )
 TRAMA_RSP_LAYOUT = (
     ("mti", 4),  # 0210 = respuesta
-    ("bus_id", 20),  # eco del ID recibido
+    ("bus_id", 20),  # eco del ID recibido (vacío si no se envió)
     ("rc", 2),  # 00 = OK, 91 = fallo
+    ("tracenumber", 12),  # consecutivo del movimiento en el core; ceros si no aplica
 )
 TRAMA_REQ_LEN = sum(w for _, w in TRAMA_REQ_LAYOUT)
 TRAMA_RSP_LEN = sum(w for _, w in TRAMA_RSP_LAYOUT)
@@ -142,10 +145,10 @@ def _cut(record: str, layout) -> Dict[str, str]:
     return out
 
 
-def trama_request(bus_id: str, txn: Dict[str, object]) -> bytes:
+def trama_request(bus_id: str, txn: Dict[str, object], include_id: bool = True) -> bytes:
     record = (
         "0200"
-        + bus_id.ljust(20)
+        + (bus_id if include_id else "").ljust(20)
         + str(txn["type"]).ljust(4)
         + str(txn["account"]).ljust(20)
         + f"{int(txn['amount_cents']):012d}"  # type: ignore[call-overload]
@@ -155,8 +158,8 @@ def trama_request(bus_id: str, txn: Dict[str, object]) -> bytes:
     return record.encode("ascii")
 
 
-def parse_trama_request(raw: bytes) -> Tuple[str, Dict[str, object]]:
-    """Devuelve (ID del bus, transacción sin validar). Rechaza cualquier desviación del layout."""
+def parse_trama_request(raw: bytes, allow_blank_id: bool = False) -> Tuple[Optional[str], Dict[str, object]]:
+    """Devuelve (ID del bus o None, transacción sin validar). Rechaza cualquier desviación del layout."""
     try:
         record = raw.decode("ascii")
     except UnicodeDecodeError:
@@ -165,20 +168,20 @@ def parse_trama_request(raw: bytes) -> Tuple[str, Dict[str, object]]:
         raise HttpError(400, "invalid_trama")
     f = _cut(record, TRAMA_REQ_LAYOUT)
     bus_id = f["bus_id"].strip()
-    if f["mti"] != "0200" or not valid_id(bus_id, "BUS"):
+    if f["mti"] != "0200" or not (valid_id(bus_id, "BUS") or (allow_blank_id and bus_id == "")):
         raise HttpError(400, "invalid_trama")
     account = f["account"].rstrip(" ")
     if not (account.isdigit() and f["amount"].isdigit()):
         raise HttpError(400, "invalid_trama")
-    return bus_id, {"type": f["txn"].strip(), "account": account, "amount_cents": int(f["amount"])}
+    return bus_id or None, {"type": f["txn"].strip(), "account": account, "amount_cents": int(f["amount"])}
 
 
-def trama_response(bus_id: str, rc: str) -> bytes:
-    return ("0210" + bus_id.ljust(20) + rc.rjust(2, "0")[-2:]).encode("ascii")
+def trama_response(bus_id: Optional[str], rc: str, tracenumber: int = 0) -> bytes:
+    return ("0210" + (bus_id or "").ljust(20) + rc.rjust(2, "0")[-2:] + f"{tracenumber:012d}"[-12:]).encode("ascii")
 
 
-def parse_trama_response(raw: bytes) -> Optional[str]:
-    """Devuelve el código de respuesta (rc) o None si la trama no es válida."""
+def parse_trama_response(raw: bytes) -> Optional[Tuple[str, Optional[str]]]:
+    """Devuelve (rc, tracenumber o None) o None si la trama no es válida."""
     try:
         record = raw.decode("ascii")
     except UnicodeDecodeError:
@@ -186,4 +189,6 @@ def parse_trama_response(raw: bytes) -> Optional[str]:
     if len(record) != TRAMA_RSP_LEN:
         return None
     f = _cut(record, TRAMA_RSP_LAYOUT)
-    return f["rc"] if f["mti"] == "0210" and f["rc"].isdigit() else None
+    if f["mti"] != "0210" or not f["rc"].isdigit() or not f["tracenumber"].isdigit():
+        return None
+    return f["rc"], (f["tracenumber"] if int(f["tracenumber"]) else None)

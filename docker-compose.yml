@@ -53,6 +53,11 @@ services:
       PORT: "8081"
       LOG_FILE: /var/log/app/bus.log
       LOG_LEVEL: ${BUS_LOG_LEVEL:-DEBUG} # INFO = el par de IDs no queda en el log (escenario de ruptura)
+      BUS_INFO_PROFILE: ${BUS_INFO_PROFILE:-split} # split: par solo en DEBUG · summary: una línea INFO por mensaje
+      CORE_LINK: ${CORE_LINK:-frame} # frame: ID del bus en la trama · tracenumber: el core no lo recibe (tipo Stratus)
+      BUS_TRACE_LOG: ${BUS_TRACE_LOG:-clear} # clear | token | mask | none: cómo queda el tracenumber en el log
+      BUS_TRACE_MASK_DIGITS: ${BUS_TRACE_MASK_DIGITS:-4}
+      TRACE_TOKEN_KEY: ${TRACE_TOKEN_KEY:-}
       CORE_URL: http://core:8082
     volumes: ["logs-bus:/var/log/app"]
     networks: [internal]
@@ -66,6 +71,7 @@ services:
       <<: *env-common
       PORT: "8082"
       LOG_FILE: /var/log/app/core.log
+      CORE_LINK: ${CORE_LINK:-frame}
       MODERN_URL: http://modern:8083
       FAULT_RATE: ${FAULT_RATE:-0.0}
       LATENCY_MIN_MS: ${LATENCY_MIN_MS:-5}
@@ -92,6 +98,8 @@ services:
     mem_limit: ${CORRELATOR_MEM:-384m} # grafo lleno (200 000 eventos) ≈ 150 MB + intérprete; en AWS se midieron 190 MB con 256 MB de límite
     environment:
       CORRELATOR_TOKEN: ${CORRELATOR_TOKEN:?ejecuta `make setup` para generar .env}
+      TRACE_TOKEN_KEY: ${TRACE_TOKEN_KEY:-} # para unir tracenumbers tokenizados (misma llave que el bus)
+      TRACE_MATCH_WINDOW_S: ${TRACE_MATCH_WINDOW_S:-5} # ventana de la unión por máscara
       PORT: "9100"
       LOG_DIR: /logs
       MAX_EVENTS: ${MAX_EVENTS:-200000}

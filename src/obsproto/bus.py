@@ -7,14 +7,19 @@ Log: texto con niveles, como un ESB real. El par (ID recibido -> ID propio) solo
 completo en una línea DEBUG; en INFO aparecen por separado la recepción (con el ID del
 gateway) y la respuesta (con el ID propio), y nada las une de forma determinista.
 Con ``LOG_LEVEL=INFO`` la cadena se rompe en el bus: es justo el escenario que se quiere medir.
+Con ``BUS_INFO_PROFILE=summary`` el bus deja una sola línea INFO por mensaje con su ID, el recibido y,
+si el core es tipo Stratus (``CORE_LINK=tracenumber``), el tracenumber que devolvió según ``BUS_TRACE_LOG``
+(claro, token, máscara o nada). Ver ``obsproto/tracelink.py``.
 """
 
 from __future__ import annotations
 
+import sys
 import threading
 
 from obsproto.common import BaseHandler, HttpError, TextLogger, env, new_id, post_raw, serve, timed, valid_id
 from obsproto.schema import validate_txn
+from obsproto.tracelink import POLICIES, obfuscate
 from obsproto.wire import (
     SOAP_CONTENT_TYPE,
     TRAMA_CONTENT_TYPE,
@@ -28,6 +33,16 @@ from obsproto.wire import (
 CORE_URL = env("CORE_URL", "http://core:8082") + "/trama"
 LOG = TextLogger(env("LOG_FILE", "/var/log/app/bus.log"), env("LOG_LEVEL", "DEBUG"))
 FLOW = "[ESB.TransactionRoute]"
+PROFILE = env("BUS_INFO_PROFILE", "split")  # split: par solo en DEBUG · summary: una línea INFO por mensaje
+CORE_LINK = env("CORE_LINK", "frame")  # frame: el ID va en la trama · tracenumber: el core no lo recibe
+TRACE_POLICY = env("BUS_TRACE_LOG", "clear")
+TRACE_VISIBLE = int(env("BUS_TRACE_MASK_DIGITS", "4"))
+TRACE_KEY = env("TRACE_TOKEN_KEY", "")
+if TRACE_POLICY not in POLICIES or (CORE_LINK == "tracenumber" and TRACE_POLICY == "token" and not TRACE_KEY):
+    sys.exit("[config] BUS_TRACE_LOG inválido, o 'token' sin TRACE_TOKEN_KEY")
+# Verdad de referencia SOLO para evaluar la unión (enlaces falsos). El correlacionador nunca lee este archivo.
+_TRUTH = open(env("TRUTH_FILE", "/var/log/app/truth.log"), "a", buffering=1) if CORE_LINK == "tracenumber" else None
+_TRUTH_LOCK = threading.Lock()
 
 
 class BusHandler(BaseHandler):
@@ -45,20 +60,31 @@ class BusHandler(BaseHandler):
             return
 
         thread = f"T{threading.get_ident() % 100000:05d}"  # como el hilo de un flujo ESB
-        LOG.log("INFO", f"{FLOW} thread={thread} received SOAP Submit upstream={gw_id}")
         bus_id = new_id("BUS")
-        LOG.log("DEBUG", f"{FLOW} thread={thread} mapped msgId={bus_id} upstream={gw_id} out=CORE.TRAMA")
+        if PROFILE == "split":
+            LOG.log("INFO", f"{FLOW} thread={thread} received SOAP Submit upstream={gw_id}")
+            LOG.log("DEBUG", f"{FLOW} thread={thread} mapped msgId={bus_id} upstream={gw_id} out=CORE.TRAMA")
 
+        frame = trama_request(bus_id, txn, include_id=CORE_LINK != "tracenumber")
         (status, raw), ms = timed(
-            lambda: post_raw(
-                CORE_URL, trama_request(bus_id, txn), TRAMA_CONTENT_TYPE, {"X-Internal-Token": env("INTERNAL_TOKEN")}
-            )
+            lambda: post_raw(CORE_URL, frame, TRAMA_CONTENT_TYPE, {"X-Internal-Token": env("INTERNAL_TOKEN")})
         )
-        rc = parse_trama_response(raw) if status == 200 else None
+        parsed = parse_trama_response(raw) if status == 200 else None
+        rc, tracenumber = parsed if parsed else (None, None)
         code = rc if rc is not None else ("TO" if status == 503 else "XX")  # TO: timeout/caída · XX: respuesta inválida
-        LOG.log(
-            "INFO" if code == "00" else "ERROR", f"{FLOW} thread={thread} reply msgId={bus_id} rc={code} dur_ms={ms}"
-        )
+
+        fields = f"reply msgId={bus_id}"
+        if PROFILE == "summary":
+            fields += f" upstream={gw_id}"  # resumen por mensaje: el par queda en INFO
+        fields += f" rc={code}"
+        if tracenumber:
+            shown = obfuscate(tracenumber, TRACE_POLICY, TRACE_KEY, TRACE_VISIBLE)
+            if shown:
+                fields += f" trace={shown}"
+            if _TRUTH is not None:
+                with _TRUTH_LOCK:
+                    _TRUTH.write(f"{bus_id} CORE-{tracenumber}\n")
+        LOG.log("INFO" if code == "00" else "ERROR", f"{FLOW} thread={thread} {fields} dur_ms={ms}")
 
         if code == "00":
             self.send_body(200, soap_response("OK"), SOAP_CONTENT_TYPE)

@@ -94,7 +94,19 @@ def test_trama_request_rejects(mutate):
 
 def test_trama_response():
     raw = trama_response("BUS-38523cfdf9a3", "91")
-    assert len(raw) == TRAMA_RSP_LEN == 26
-    assert parse_trama_response(raw) == "91"
+    assert len(raw) == TRAMA_RSP_LEN == 38
+    assert parse_trama_response(raw) == ("91", None)  # modo frame: sin tracenumber
     assert parse_trama_response(raw[:-1]) is None
     assert parse_trama_response(b"0200" + raw[4:]) is None
+
+
+def test_tracenumber_mode_frame_without_bus_id():
+    # Core tipo Stratus: la trama no lleva el ID del bus y la respuesta trae el consecutivo del movimiento.
+    raw = trama_request("BUS-38523cfdf9a3", TXN, include_id=False)
+    assert raw[4:24] == b" " * 20
+    with pytest.raises(HttpError):
+        parse_trama_request(raw)  # en modo frame el ID es obligatorio
+    bus_id, txn = parse_trama_request(raw, allow_blank_id=True)
+    assert bus_id is None and validate_txn(txn) == TXN
+    rsp = trama_response(None, "00", 1795066463123)
+    assert parse_trama_response(rsp) == ("00", "795066463123")  # 12 dígitos

@@ -29,6 +29,7 @@ disponibilidad del flujo, credenciales (API keys, tokens, llaves AWS del lab).
 | 21 | **XXE / expansión de entidades** en SOAP (lectura de archivos, *billion laughs*) | I/D | Se rechaza `<!DOCTYPE` y `<!ENTITY` antes de parsear; cuerpo ≤ 4 KB; estructura exacta del sobre y de la transacción | `wire.py` | `test_wire` |
 | 22 | Trama manipulada (desbordar campos, ID de otra capa) | T | Longitud exacta, solo ASCII, MTI conocido, ID con prefijo `BUS-`, campos numéricos verificados; luego `validate_txn` | `wire.py`, `core.py` | `test_wire` |
 | 23 | Enlace inventado por correlación heurística | T | El parser del bus solo une por ID (línea DEBUG `mapped`); nunca por hilo ni por hora. Sin el par, la traza se reporta incompleta | `parsers.BusLogParser` | `test_parsers` |
+| 24 | Exposición del tracenumber del core en el log del bus | I | Política `BUS_TRACE_LOG=token`: HMAC-SHA256 con `TRACE_TOKEN_KEY` (secreto en `.env`, solo bus y correlacionador); la máscara se desaconseja porque con la hora identifica el movimiento | `tracelink.py`, `corelink.py` | `test_corelink`, `evidence/core-link-local-*` |
 
 ## Riesgos residuales (aceptados y declarados)
 1. **Tráfico interno sin cifrar** (HTTP dentro de la red aislada de Docker). Mitigado con red interna + token; mejora: mTLS.
@@ -42,6 +43,8 @@ disponibilidad del flujo, credenciales (API keys, tokens, llaves AWS del lab).
 9. **S3 cifrado con llave de AWS, no con CMK** (Trivy AWS-0132): SSE-S3 + bloqueo público + TLS obligatorio. Mejora: SSE-KMS con CMK y rotación si los datos dejaran de ser sintéticos.
 
 10. **Generador de carga (solo durante las pruebas):** segunda instancia con SSH desde una IP y salida al gateway únicamente por su grupo de seguridad. Recibe solo `API_KEYS` (no los tokens internos ni el del correlacionador), copiadas por SSH, nunca por `UserData`. Se elimina al terminar (`EnableLoadGenerator=false`).
+
+11. **Llave de tokenización (`TRACE_TOKEN_KEY`):** quien la tenga puede calcular el token de cualquier tracenumber candidato (el espacio de un consecutivo es predecible). Se custodia como secreto y no sale del bus ni del correlacionador. Mejora: rotación y almacenamiento en un gestor de secretos.
 
 Trivy AWS-0028 (IMDSv2) es un falso positivo: la plantilla exige tokens y `HopLimit: 1`. Las tres excepciones están en `.trivyignore` con su justificación.
 

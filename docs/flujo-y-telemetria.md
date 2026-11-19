@@ -176,6 +176,31 @@ concurrencia eso inventaría relaciones falsas. Prefiere reportar la traza como 
 línea, con un nivel activo en producción (INFO o superior). No hace falta modificar las aplicaciones, solo configurar
 cómo registran.
 
+## 6b. Cuando el core no recibe el ID del bus (tracenumber, tipo Stratus)
+
+En el caso real el core no recibe el ID del bus: asigna a cada movimiento un **consecutivo que nunca se repite** (*tracenumber*)
+y lo devuelve en la respuesta. El bus no tiene DEBUG en producción y en INFO ese valor queda ofuscado. El eslabón bus → core
+solo puede salir de la línea de respuesta del bus ([ADR-0006](adr/0006-core-tracenumber-link.md)).
+
+```
+Bus → Core     trama 0200: (campo del bus vacío) PAY 261973069 000000207101
+Core → Bus     trama 0210: rc=00 tracenumber=795070117166
+bus.log        INFO reply msgId=BUS-… upstream=GW-… rc=00 trace=<según la política> dur_ms=32
+core.log       20261119…CORE-795070117166   (vacío)               PAY 00000020710100000039
+```
+
+| Política del bus | Cómo queda | Cómo se une | Trazas completas | Uniones falsas |
+|---|---|---|---|---|
+| `clear` | `trace=795070117166` | Igualdad | 100 % | 0 |
+| `token` | `trace=tok_11f558a938873f72` | HMAC recalculado sobre el core | 100 % | 0 |
+| `mask` 4 dígitos | `trace=********6178` | Terminación + hora (único candidato) | 100 % | 0 |
+| `mask` 3 dígitos | `trace=*********081` | Igual | 20 % (resto ambiguo) | 0 |
+| `mask` 2 dígitos | `trace=**********63` | Igual | 0 % (ambiguo) | 0 |
+| `none` | — | — | 0 % | 0 |
+
+Con *v* dígitos visibles la terminación es única mientras en la ventana (±5 s) haya menos de 10^v movimientos. Por eso la
+máscara depende de la carga y el token no. Regla: **si se ofusca, tokenizar**. Evidencia: `evidence/core-link-local-2026-11-19/`.
+
 ## 7. Escenarios de carga
 
 Cada escenario se publica en el tablero de CloudWatch `obsproto-pruebas` con su nombre (`--cw-scenario`), junto con la CPU y

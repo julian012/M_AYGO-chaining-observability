@@ -34,11 +34,12 @@ make down                     # detener (make clean borra los logs)
 Inyectar fallos en el core: `FAULT_RATE=0.1` en `.env` y `docker compose up -d`.
 Bus sin el par de IDs en el log (escenario de ruptura): `BUS_LOG_LEVEL=INFO docker compose up -d bus`.
 Todos los canales por REST (línea base sin SOAP): `python3 scripts/generate_load.py --rest-only …`.
+Core tipo Stratus que no recibe el ID del bus (tracenumber) y cómo queda en el log del bus: `python3 scripts/core_link_experiment.py --out-dir …` ([ADR-0006](docs/adr/0006-core-tracenumber-link.md)).
 
 ## Pruebas y calidad
 ```bash
 pip install -e ".[dev]"
-make test      # 88 pruebas: parsers de las 4 fuentes, SOAP/tramas (incl. XXE), grafo de IDs, validación
+make test      # 106 pruebas: parsers de las 4 fuentes, SOAP/tramas (incl. XXE), grafo de IDs, unión por tracenumber, validación
 make lint      # ruff + cfn-lint
 ```
 CI (GitHub Actions): lint, pruebas (Python 3.9 y 3.12), cfn-lint, gitleaks, pip-audit, Trivy (IaC e imagen), hadolint.

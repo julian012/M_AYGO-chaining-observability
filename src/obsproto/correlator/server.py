@@ -14,8 +14,16 @@ import time
 from typing import Callable, Dict, List, Union
 
 from obsproto.common import BaseHandler, HttpError, env, serve, token_matches, valid_id
+from obsproto.correlator.corelink import CoreLinker
 from obsproto.correlator.graph import IdGraph
-from obsproto.correlator.parsers import BusLogParser, Event, parse_core_line, parse_gateway_line, parse_span_line
+from obsproto.correlator.parsers import (
+    BusLogParser,
+    Event,
+    TraceRef,
+    parse_core_line,
+    parse_gateway_line,
+    parse_span_line,
+)
 
 MAX_READ_PER_POLL = 1_048_576
 MAX_PARTIAL = 4096
@@ -24,22 +32,24 @@ MAX_PARTIAL = 4096
 class Tailer:
     """Lee solo líneas completas y nuevas; tolera rotación/truncado del archivo."""
 
-    def __init__(self, path: str, parse: Callable[[str], Union[None, Event, List[Event]]], fmt: str) -> None:
+    def __init__(self, path: str, parse: Callable[[str], Union[None, Event, List[object]]], fmt: str) -> None:
         self.path, self.parse, self.fmt = path, parse, fmt
         self._offset, self._inode, self._partial = 0, None, b""
         self.malformed = 0
 
-    def poll(self, graph: IdGraph, counts: Dict[str, int]) -> None:
+    def poll(self, graph: IdGraph, counts: Dict[str, int]) -> bool:
+        """Lee lo nuevo del archivo. Devuelve True si quedó al día (leyó hasta el final)."""
         try:
             st = os.stat(self.path)
         except FileNotFoundError:
-            return
+            return True
         if st.st_ino != self._inode or st.st_size < self._offset:
             self._offset, self._inode, self._partial = 0, st.st_ino, b""
         with open(self.path, "rb") as fh:
             fh.seek(self._offset)
             chunk = fh.read(MAX_READ_PER_POLL)
         self._offset += len(chunk)
+        caught_up = len(chunk) < MAX_READ_PER_POLL
         data = self._partial + chunk
         *lines, self._partial = data.split(b"\n")
         if len(self._partial) > MAX_PARTIAL:  # línea sin fin: se descarta
@@ -50,12 +60,18 @@ class Tailer:
             if result is None:
                 self.malformed += 1
                 continue
-            for ev in [result] if isinstance(result, Event) else result:
-                if graph.add(ev):
-                    counts[ev.layer] = counts.get(ev.layer, 0) + 1
+            for item in [result] if isinstance(result, Event) else result:
+                if isinstance(item, TraceRef):  # el bus registró el tracenumber que devolvió el core
+                    LINKER.on_ref(item)
+                elif graph.add(item):
+                    counts[item.layer] = counts.get(item.layer, 0) + 1
+                    if item.layer == "core":
+                        LINKER.on_core_event(item)
+        return caught_up
 
 
 GRAPH = IdGraph(int(env("MAX_EVENTS", "200000")))
+LINKER = CoreLinker(GRAPH, env("TRACE_TOKEN_KEY", ""), float(env("TRACE_MATCH_WINDOW_S", "5")))
 COUNTS: Dict[str, int] = {}
 LOG_DIR = env("LOG_DIR", "/logs")
 BUS_PARSER = BusLogParser()
@@ -70,8 +86,8 @@ TAILERS: List[Tailer] = [
 
 def _poll_forever() -> None:
     while True:
-        for tailer in TAILERS:
-            tailer.poll(GRAPH, COUNTS)
+        caught_up = {t.fmt: t.poll(GRAPH, COUNTS) for t in TAILERS}
+        LINKER.resolve(time.time(), caught_up["fixed-width"])
         time.sleep(0.5)
 
 
@@ -106,6 +122,7 @@ class CorrelatorHandler(BaseHandler):
             "malformedLines": sum(t.malformed for t in TAILERS),
             "sources": {os.path.basename(t.path).split(".")[0]: t.fmt for t in TAILERS},
             "busUnlinkedReplies": BUS_PARSER.unlinked,
+            "coreLink": LINKER.stats(),
             "transactions": comp["total"],
             "completeTraces": comp["complete"],
             "completeness": round(comp["complete"] / comp["total"], 4) if comp["total"] else None,
